@@ -1,5 +1,17 @@
 mdc.ripple.MDCRipple.attachTo(document.querySelector(".mdc-button"));
 
+/*
+
+    Proposed database schema:
+
+    {
+        name: {
+            offer: RTCSessionDescriptionInit,
+        }
+    }
+
+*/
+
 // DEfault configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
   iceServers: [
@@ -10,6 +22,7 @@ const configuration = {
   iceCandidatePoolSize: 10,
 };
 
+// Add global list of peer connections
 let peerConnection = null;
 let localStream = null;
 let remoteStream = null;
@@ -38,6 +51,7 @@ async function createRoom() {
   const offer = await peerConnection.createOffer();
   await peerConnection.setLocalDescription(offer);
 
+  // Change to list of offers
   const roomWithOffer = {
     offer: {
       type: offer.type,
@@ -114,6 +128,8 @@ async function joinRoomById(roomId) {
     console.log("Create PeerConnection with configuration: ", configuration);
     peerConnection = new RTCPeerConnection(configuration);
     registerPeerConnectionListeners();
+
+    // Get rid of this
     localStream.getTracks().forEach((track) => {
       peerConnection.addTrack(track, localStream);
     });
@@ -122,6 +138,7 @@ async function joinRoomById(roomId) {
 
     // Code for collecting ICE candidates above
 
+    // Also get rid of this?
     peerConnection.addEventListener("track", (event) => {
       console.log("Got remote track:", event.streams[0]);
       event.streams[0].getTracks().forEach((track) => {
@@ -131,6 +148,21 @@ async function joinRoomById(roomId) {
     });
 
     // Code for creating SDP answer below
+    // Get offers
+    const offer = roomSnapshot.data().offer;
+
+    // Add this into a for loop, creating new peer connection instances
+    await peerConnection.setRemoteDescription(offer);
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+
+    const roomWithAnswer = {
+      answer: {
+        type: answer.type,
+        sdp: answer.sdp,
+      },
+    };
+    await roomRef.update(roomWithAnswer);
 
     // Code for creating SDP answer above
 
@@ -197,6 +229,7 @@ async function hangUp(e) {
   document.location.reload(true);
 }
 
+// Pass in peer connection so it doesn't have to be global :)
 function registerPeerConnectionListeners() {
   peerConnection.addEventListener("icegatheringstatechange", () => {
     console.log(

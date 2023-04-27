@@ -1,10 +1,13 @@
 // This file contains types that are used to represent musical data across the application for objects like songs, albums, and artists.
 
+// The duration of a song in milliseconds.
+export type Milliseconds = number;
+
 export interface Song {
   name: string;
   artists: Artist[];
   album: Album;
-  duration: number;
+  duration: Milliseconds;
 }
 
 export interface Album {

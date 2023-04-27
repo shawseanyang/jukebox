@@ -2,6 +2,7 @@ import { Avatar, List, Row, Skeleton } from "antd";
 import { Artist, Song } from "../types/Music";
 import Title from "antd/es/typography/Title";
 import CenteredTitle from "./CenteredTitle";
+import SongListItem from "./SongListItem";
 
 export type QueueViewerProps = {
   queue: Song[];
@@ -9,10 +10,6 @@ export type QueueViewerProps = {
 };
 
 const QueueViewer = (props: QueueViewerProps) => {
-
-  function formatArtistsNames(artists: Artist[]) {
-    return artists.map((artist) => artist.name).join(", ");
-  }
 
   function isQueueEmpty() {
     return props.queue.length === 0;
@@ -35,13 +32,10 @@ const QueueViewer = (props: QueueViewerProps) => {
       dataSource={props.queue}
       renderItem={(song, index) => (
         <List.Item
-          actions={[<a key="delete" onClick={() => props.deleteSong(index)}>Delete</a>]}
-        >
-          <List.Item.Meta
-            avatar={<Avatar shape="square" size="large" src={song.album.imageUrl} />}
-            title={song.name}
-            description={formatArtistsNames(song.artists)}
-          />
+          actions={[
+            <a key="delete" onClick={() => props.deleteSong(index)}>Delete</a>
+          ]}>
+          <SongListItem song={song} />
         </List.Item>
       )}
     />

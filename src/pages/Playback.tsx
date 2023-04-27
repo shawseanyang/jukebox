@@ -6,15 +6,7 @@ import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
 import { Queue, Song } from "../types/Music";
-
-const FAKE_SONG = {
-  name: "Fake Song",
-  artists: [{ name: "Fake Artist 1" }, { name: "Fake Artist 2" }],
-  album: { name: "Fake Album", imageUrl: "https://content-images.p-cdn.com/images/b8/64/67/6b/82be444a8cfadb653356d6a0/_1080W_1080H.jpg" },
-  duration: 300,
-};
-
-const FAKE_QUEUE = [FAKE_SONG, FAKE_SONG, FAKE_SONG];
+import { FAKE_QUEUE } from "../placeholder_data/fake_music";
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);

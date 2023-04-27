@@ -19,7 +19,7 @@ import 'firebase/compat/firestore';
 
 // Global state
 var username: string = '';
-var roomId: string = '';
+var sessionId: string = '';
 
 // DEfault configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
@@ -77,10 +77,17 @@ async function createSession() {
 //    ID of all the users in it. Can then iterate over user IDs and send
 //    them all offers to create peer connections and data channels
 async function joinSession() {
+
+  // TODO: need to get roomID from user
+
   const db = firebase.firestore();
-  const roomRef = db.collection("rooms").doc(`${roomId}`);
-  const roomSnapshot = await roomRef.get();
-  console.log("Got room:", roomSnapshot.exists);
+  const sessionRef = db.collection("sessions").doc(`${sessionId}`);
+  const sessionSnapshot = await sessionRef.get();
+  console.log("Got session:", sessionSnapshot.exists);
+
+  if (sessionSnapshot.exists) {
+
+  }
 }
 
 

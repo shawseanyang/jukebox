@@ -1,6 +1,7 @@
 import { Avatar, List, Row, Skeleton } from "antd";
 import { Artist, Song } from "../types/Music";
 import Title from "antd/es/typography/Title";
+import CenteredTitle from "./CenteredTitle";
 
 export type QueueViewerProps = {
   queue: Song[];
@@ -48,9 +49,7 @@ const QueueViewer = (props: QueueViewerProps) => {
   // if the queue is empty, render a skeleton. Otherwise, render the queue
   return (
     <>
-      <Row justify="center">
-        <Title>Up next</Title>
-      </Row>
+      <CenteredTitle>Up next</CenteredTitle>
       {isQueueEmpty() ? SkeletonQueue : Queue}
     </>
   )

@@ -21,7 +21,7 @@ const Playback = () => {
       />
       <Row>
         <Col span={12}>
-          <AlbumCover />
+          <AlbumCover imageUrl={null}/>
         </Col>
         <Col span={12}>
           <PlaybackController />

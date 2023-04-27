@@ -10,6 +10,7 @@
     "@types/node": "^16.18.23",
     "@types/react": "^18.0.37",
     "@types/react-dom": "^18.0.11",
+    "@types/webrtc": "^0.0.35",
     "firebase": "^9.20.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

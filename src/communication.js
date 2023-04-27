@@ -1,3 +1,4 @@
+import { group } from 'console';
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
 import { off } from 'process';
@@ -21,7 +22,7 @@ import { off } from 'process';
 
     userOffers collection/table has:
     {
-      offers: [offer1, offer2, ...]
+      offers: [(userID, offer1), (userID, offer2), ...]
     }
 
 */
@@ -30,8 +31,9 @@ import { off } from 'process';
 // Initialize firebase?
 
 // Global state
-var username: string = '';
-var sessionId: string = '';
+var username = '';
+var sessionId = '';
+var groupMembers = 0;
 
 // DEfault configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
@@ -77,7 +79,7 @@ async function createSession() {
       var offerList = snapshot.data().offers;
   
       // iterate over list of offers
-      for (let offer of offerList) {
+      for (let [otherUserID, offer] of offerList) {
         const peerConnection = new RTCPeerConnection(configuration);
         registerPeerConnectionListeners(peerConnection);
         await peerConnection.setRemoteDescription(offer);
@@ -85,11 +87,10 @@ async function createSession() {
         await peerConnection.setLocalDescription(answer);
 
         // TODO: create data channel
-
+        const dataChannel = peerConnection.createDataChannel();
         
-        // TODO: 
-        const peerIdentity:string = await peerConnection.peerIdentity;
-        connectionToUserMap[] = 
+        const peerIdentity = await peerConnection.peerIdentity;
+        connectionToUserMap[peerIdentity] = (otherUserID, dataChannel)
       }
 
       // after iterating over all offers set list to empty list? Nvm what if we
@@ -104,12 +105,16 @@ async function createSession() {
     }
   });
 
-  const userID = userRef.id;
-  const sessionRef = await db.collection("sessions").add([userID]);
+
+  const sessionEntry = {
+    users: [userRef.id]
+  };
+  const sessionRef = await db.collection("sessions").add(sessionEntry);
   sessionRef.onSnapshot(async (snapshot) => {
     console.log("Update to group membership");
-
-    // TOOD: add logic to handle changes to group membership
+    const memberList = snapshot.data().users;
+    groupMembers = memberList.length;
+    // TODO: add logic to handle changes to group membership
   });
 }
 
@@ -128,14 +133,20 @@ async function joinSession() {
   console.log("Got session:", sessionSnapshot.exists);
 
   if (sessionSnapshot.exists) {
+    // TODO: create peer connection and listen for data channel event?
 
+    // peerConnection.addEventListener('datachannel', event => {
+    //   const dataChannel = event.channel;
+    // });
+
+    // TODO: add event listeners for data channel 'open' and 'close'
   }
 }
 
 
 
 // Pass in peer connection so it doesn't have to be global :)
-function registerPeerConnectionListeners( peerConnection : RTCPeerConnection) {
+function registerPeerConnectionListeners(peerConnection) {
   peerConnection.addEventListener("icegatheringstatechange", () => {
     console.log(
       `ICE gathering state changed: ${peerConnection.iceGatheringState}`
@@ -156,5 +167,14 @@ function registerPeerConnectionListeners( peerConnection : RTCPeerConnection) {
     console.log(
       `ICE connection state change: ${peerConnection.iceConnectionState}`
     );
+  });
+
+  peerConnection.addEventListener('datachannel', (event) => {
+    console.log(
+      `Data channel made for user ${username}`
+    );
+
+
+    
   });
 }

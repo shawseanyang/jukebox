@@ -5,7 +5,7 @@ import SongAdder from "../components/SongAdder";
 import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
-import { Queue } from "../types/Music";
+import { Queue, Song } from "../types/Music";
 
 const FAKE_SONG = {
   name: "Fake Song",
@@ -28,6 +28,10 @@ const Playback = () => {
     // TODO: implement
   }
 
+  function addSong(song: Song) {
+    // TODO: implement
+  }
+
   return (
     <>
       <JoinGroupModal
@@ -35,19 +39,21 @@ const Playback = () => {
         joinGroup={setGroup}
       />
       <Row>
-        <Col span={12}>
+        <Col span={10}>
           <AlbumCover imageUrl={null}/>
         </Col>
-        <Col span={12}>
+        <Col span={4} />
+        <Col span={10}>
           <PlaybackController />
         </Col>
       </Row>
       <Row>
-        <Col span={12}>
+        <Col span={10}>
           <QueueViewer queue={FAKE_QUEUE} deleteSong={deleteSong}/>
         </Col>
-        <Col span={12}>
-          <SongAdder />
+        <Col span={4} />
+        <Col span={10}>
+          <SongAdder addSong={addSong}/>
         </Col>
       </Row>
     </>

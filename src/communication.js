@@ -56,6 +56,72 @@ const configuration = {
 // dictionary from peerConnection -> (userConnectedToId, dataChannel)
 var connectionToUserMap = {};
 
+var userToConnection = {};
+
+
+async function handleConnectionUpdate(snapshot) {
+  console.log("Got new connection offer");
+  if (snapshot.exists) {
+    var offerList = snapshot.data().offers;
+
+    // iterate over list of offers
+    for (let [otherUserID, offer] of offerList) {
+      const peerConnection = new RTCPeerConnection(configuration);
+      registerPeerConnectionListeners(peerConnection);
+      await peerConnection.setRemoteDescription(offer);
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      
+      // Notify other user of our answer
+      const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
+      const otherUserSnapshot = await otherUserRef.get();
+      if (otherUserSnapshot.exists) {
+        const theirAnswers = otherUserSnapshot.data().answers;
+        theirAnswers.push(answer);
+        const newEntry = {
+          offers: otherUserSnapshot.data().offers,
+          answers: theirAnswers
+        };
+        await otherUserRef.update(newEntry);
+      }
+
+      // create data channel
+      const dataChannel = peerConnection.createDataChannel();
+      
+      const peerIdentity = await peerConnection.peerIdentity;
+      connectionToUserMap[peerIdentity] = (otherUserID, dataChannel)
+    }
+
+    // iterate over life of answers
+    var answerList = snapshot.data().answers;
+    for (let [ID, answer] of answerList) {
+      const RTCAnswer = new RTCSessionDescription(answer);
+      await userToConnection[ID].setRemoteDescription(RTCAnswer);
+    }
+
+    // after iterating over all offers set list to empty list?
+    const emptyEntry = {
+      offers: [],
+      answers: []
+    };
+    await userRef.update(emptyEntry);
+  }
+  else {
+    console.log(`username "${username}" got an offer update but snapshot did not exist.`);
+  }
+}
+
+async function addUser() {
+  const db = firebase.firestore();
+  const entry = {
+    offers: [],
+    answers: []
+  };
+  const userRef = await db.collection("userOffers").add(entry);
+  userRef.onSnapshot(handleConnectionUpdate);
+}
+
+
 // Creates a session by adding an entry to the sessions table whose ID will be used
 //    to join the session. Also adds an entry to the userOffers table which will be
 //    used as a way to send and receive offers
@@ -69,41 +135,7 @@ async function createSession() {
   // TODO: we need to get users username so that we can add it to the dict
   username = "Placeholder";
 
-  const entry = {
-    offers: []
-  }
-  const userRef = await db.collection("userOffers").add(entry);
-  userRef.onSnapshot(async (snapshot) => {
-    console.log("Got new connection offer");
-    if (snapshot.exists) {
-      var offerList = snapshot.data().offers;
-  
-      // iterate over list of offers
-      for (let [otherUserID, offer] of offerList) {
-        const peerConnection = new RTCPeerConnection(configuration);
-        registerPeerConnectionListeners(peerConnection);
-        await peerConnection.setRemoteDescription(offer);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
 
-        // TODO: create data channel
-        const dataChannel = peerConnection.createDataChannel();
-        
-        const peerIdentity = await peerConnection.peerIdentity;
-        connectionToUserMap[peerIdentity] = (otherUserID, dataChannel)
-      }
-
-      // after iterating over all offers set list to empty list? Nvm what if we
-      //    receive offers in between :/
-      const emptyEntry = {
-        offers: []
-      }
-      await userRef.update(emptyEntry);
-    }
-    else {
-      console.log(`username "${username}" got an offer update but snapshot did not exist.`);
-    }
-  });
 
 
   const sessionEntry = {
@@ -113,6 +145,9 @@ async function createSession() {
   sessionRef.onSnapshot(async (snapshot) => {
     console.log("Update to group membership");
     const memberList = snapshot.data().users;
+    if (memberList.length < groupMembers) {
+      // TODO: handle losing members
+    }
     groupMembers = memberList.length;
     // TODO: add logic to handle changes to group membership
   });
@@ -132,14 +167,40 @@ async function joinSession() {
   const sessionSnapshot = await sessionRef.get();
   console.log("Got session:", sessionSnapshot.exists);
 
+  // add user to database
+  const entry = {
+    offers: [],
+    answers: []
+  };
+  const myRef = await db.collection("userOffers").add(entry);
+
   if (sessionSnapshot.exists) {
-    // TODO: create peer connection and listen for data channel event?
+    // iterate over all users in the session
+    for (let ID of sessionSnapshot.data().users) {
+      const peerConnection = new RTCPeerConnection(configuration);
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      
+      // TODO: create peer connection and listen for data channel event?
+      const userRef = db.collection("userOffers").doc(`${ID}`);
+      const userSnapshot = await userRef.get();
 
-    // peerConnection.addEventListener('datachannel', event => {
-    //   const dataChannel = event.channel;
-    // });
+      if (userSnapshot.exists) {
+        const offers = userSnapshot.data().offers;
+        offers.push(offer);
+        const newEntry = {
+          offers: offers,
+          answers: userSnapshot.data().answers
+        };
+        await otherUserRef.update(newEntry);
+      }
 
-    // TODO: add event listeners for data channel 'open' and 'close'
+      // peerConnection.addEventListener('datachannel', event => {
+      //   const dataChannel = event.channel;
+      // });
+  
+      // TODO: add event listeners for data channel 'open' and 'close'
+    }
   }
 }
 

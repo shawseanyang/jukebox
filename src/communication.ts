@@ -1,5 +1,6 @@
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/firestore';
+import { off } from 'process';
 // import '@firebase/firestore-types'
 
 /*
@@ -10,6 +11,17 @@ import 'firebase/compat/firestore';
         name: {
             offer: RTCSessionDescriptionInit,
         }
+    }
+
+    New schema:
+    sessions collection/table has:
+    {
+        members: [user1_ID, user2_ID, ...]
+    }
+
+    userOffers collection/table has:
+    {
+      offers: [offer1, offer2, ...]
     }
 
 */
@@ -55,11 +67,41 @@ async function createSession() {
   // TODO: we need to get users username so that we can add it to the dict
   username = "Placeholder";
 
-  const userRef = await db.collection("userOffers").add([]);
+  const entry = {
+    offers: []
+  }
+  const userRef = await db.collection("userOffers").add(entry);
   userRef.onSnapshot(async (snapshot) => {
     console.log("Got new connection offer");
+    if (snapshot.exists) {
+      var offerList = snapshot.data().offers;
+  
+      // iterate over list of offers
+      for (let offer of offerList) {
+        const peerConnection = new RTCPeerConnection(configuration);
+        registerPeerConnectionListeners(peerConnection);
+        await peerConnection.setRemoteDescription(offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
 
-    // TODO: add code to accept peer connection (model after joinRoom)
+        // TODO: create data channel
+
+        
+        // TODO: 
+        const peerIdentity:string = await peerConnection.peerIdentity;
+        connectionToUserMap[] = 
+      }
+
+      // after iterating over all offers set list to empty list? Nvm what if we
+      //    receive offers in between :/
+      const emptyEntry = {
+        offers: []
+      }
+      await userRef.update(emptyEntry);
+    }
+    else {
+      console.log(`username "${username}" got an offer update but snapshot did not exist.`);
+    }
   });
 
   const userID = userRef.id;

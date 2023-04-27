@@ -1,11 +1,17 @@
 import { Outlet } from 'react-router-dom';
+import { Layout as Wrapper, Row, Col } from 'antd';
 
 const Layout = () => {
   return (
-    <>
-      <h1>Layout</h1>
-      <Outlet />
-    </>
+      <Wrapper>
+          <Row justify="center" align="middle" style={{minHeight: '100vh'}}>
+            <Col span={6} />
+            <Col span={12}>
+              <Outlet />
+            </Col>
+            <Col span={6} />
+          </Row>
+      </Wrapper>
   )
 };
 

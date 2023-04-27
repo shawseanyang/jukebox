@@ -1,5 +1,22 @@
+import { useState } from "react";
+import JoinGroupModal from "../components/JoinGroupModal";
+import { Col, Row } from "antd";
+
 const Playback = () => {
-  return <h1>Playback</h1>;
+  const [group, setGroup] = useState<string | null>(null);
+
+  function hasJoinedGroup() {
+    return group !== null;
+  }
+
+  return (
+    <>
+      <JoinGroupModal
+        isOpen={!hasJoinedGroup()}
+        joinGroup={setGroup}
+      />
+    </>
+  );
 };
 
 export default Playback;

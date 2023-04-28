@@ -20,7 +20,10 @@ const Playback = () => {
 
   useEffect(() => {
 
-    var code = new URLSearchParams(window.location.href).get('http://localhost:3000/playback?code');
+    var args = window.location.href;
+    args = args.substring(args.indexOf('?') + 1);
+
+    var code = new URLSearchParams(args).get('code');
 
     if (code === null) {
       throw new Error('No code provided');

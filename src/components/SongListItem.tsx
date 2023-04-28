@@ -1,14 +1,11 @@
 import { Avatar, List } from "antd";
 import { Artist, Song } from "../types/Music";
+import { formatArtistsNames } from "../util/musicUtil";
 
 // Renders a song into a list item
 export type SongListItemProps = {
   song: Song;
 };
-
-function formatArtistsNames(artists: Artist[]) {
-  return artists.map((artist) => artist.name).join(", ");
-}
 
 const SongListItem = (props: SongListItemProps) =>
 <List.Item.Meta

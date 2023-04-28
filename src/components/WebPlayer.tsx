@@ -4,11 +4,11 @@ import { toSong } from '../util/translators';
 
 export type WebPlayerProps = {
     token: string;
-    isPaused: boolean;
+    isPlaying: boolean;
     currentSong: Song | null;
     player: Spotify.Player | null;
     isActive: boolean;
-    setPaused: (paused: boolean) => void;
+    setIsPlaying: (paused: boolean) => void;
     setCurrentSong: (song: Song) => void;
     setPlayer: (player: Spotify.Player) => void;
     setActive: (active: boolean) => void;
@@ -52,7 +52,7 @@ function WebPlayer(props: WebPlayerProps) {
                 }
 
                 props.setCurrentSong(toSong(state.track_window.current_track));
-                props.setPaused(state.paused);
+                props.setIsPlaying(!state.paused);
 
                 player.getCurrentState().then( state => { 
                     (!state)? props.setActive(false) : props.setActive(true) 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import JoinGroupModal from "../components/JoinGroupModal";
 import { Col, Row, Space } from "antd";
 import SongAdder from "../components/SongAdder";
@@ -20,6 +20,20 @@ const Playback = () => {
   const [token, setToken] = useState("");
   const [player, setPlayer] = useState<Spotify.Player | null>(null);
   const [isPlayerActive, setPlayerActive] = useState(false);
+  const [trigger, setTrigger] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTrigger(!trigger);
+      player?.getCurrentState()?.then(state => {
+            if (state) {
+              setSongProgress(state.position);
+            }
+          }
+        );
+    }, 500);
+    return () => clearInterval(interval);
+  }, [trigger]);
 
   useEffect(() => {
     var args = window.location.href;
@@ -91,11 +105,11 @@ const Playback = () => {
     <>
       <WebPlayer
         token={token}
-        isPaused={isPlaying}
+        isPlaying={isPlaying}
         currentSong={currentSong}
         player={player}
         isActive={isPlayerActive}
-        setPaused={setIsPlaying}
+        setIsPlaying={setIsPlaying}
         setCurrentSong={setCurrentSong}
         setPlayer={setPlayer}
         setActive={setPlayerActive}

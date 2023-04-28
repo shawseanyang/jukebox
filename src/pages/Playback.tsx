@@ -18,6 +18,8 @@ const Playback = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [songProgress, setSongProgress] = useState<Milliseconds>(0);
   const [token, setToken] = useState("");
+  const [player, setPlayer] = useState<Spotify.Player | null>(null);
+  const [isPlayerActive, setPlayerActive] = useState(false);
 
   useEffect(() => {
     var args = window.location.href;
@@ -81,12 +83,23 @@ const Playback = () => {
 
   function togglePlayback() {
     setIsPlaying(!isPlaying);
+    player?.togglePlay();
     // TODO: implement
   }
 
   return (
     <>
-      <WebPlayer token={token} />
+      <WebPlayer
+        token={token}
+        isPaused={isPlaying}
+        currentSong={currentSong}
+        player={player}
+        isActive={isPlayerActive}
+        setPaused={setIsPlaying}
+        setCurrentSong={setCurrentSong}
+        setPlayer={setPlayer}
+        setActive={setPlayerActive}
+      />
       <JoinGroupModal
         isOpen={!hasJoinedGroup()}
         joinGroup={setGroup}

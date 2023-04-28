@@ -49,8 +49,8 @@
     ]
   },
   "devDependencies": {
-    "@types/styled-components": "^5.1.26",
     "@types/spotify-web-playback-sdk": "^0.1.15",
+    "@types/styled-components": "^5.1.26",
     "dotenv-webpack": "^8.0.1",
     "react-router-dom": "^6.10.0"
   }

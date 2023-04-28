@@ -22,6 +22,8 @@ reportWebVitals();
 
 // dotenv.config()
 
+// TODO: move to dotenv and have two env files, one for dev one for prod.
+
 export var spotify_client_id = process.env.SPOTIFY_CLIENT_ID || '80ee5f3ad1cc458b941f82d730eed3e8' // ''
 export var spotify_client_secret = process.env.SPOTIFY_CLIENT_SECRET || 'f720b5485ccf400bb6c50c733dd8b420' // ''
 

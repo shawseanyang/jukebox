@@ -2,6 +2,7 @@
 
 export function toSong(track: Spotify.Track) {
   return {
+    uri: track.uri,
     name: track.name,
     artists: track.artists.map((artist) => ({ name: artist.name })),
     album: {

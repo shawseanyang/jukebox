@@ -4,6 +4,7 @@
 export type Milliseconds = number;
 
 export interface Song {
+  uri: string;
   name: string;
   artists: Artist[];
   album: Album;

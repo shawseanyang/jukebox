@@ -74,31 +74,39 @@ const Playback = () => {
   }
   
   function deleteSong(index: number) {
-    // TODO: implement
+    // TODO: implement consensus algorithm
+    setQueue(queue.filter((_, i) => i !== index));
   }
 
   function addSong(song: Song) {
-    // TODO: implement
+    // TODO: implement consensus algorithm
+    setQueue([song, ...queue]);
   }
 
   function skipSong() {
-    // TODO: implement
+    // TODO: implement consensus algorithm
+    if (queue.length > 0) {
+      playSong(queue[0]);
+      setQueue(queue.slice(1));
+    }
   }
 
   function playSong(song: Song) {
+    // TODO: implement consensus algorithm
     setCurrentSong(song);
-    // TODO: implement
+    // TODO: query spotify web api with a /me/player/start request with the song uri
   }
 
   function scrubTo(location: Milliseconds) {
+    // TODO: implement consensus algorithm
     setSongProgress(location)
-    // TODO: implement
+    player?.seek(location);
   }
 
   function togglePlayback() {
+    // TODO: implement consensus algorithm
     setIsPlaying(!isPlaying);
     player?.togglePlay();
-    // TODO: implement
   }
 
   return (
@@ -138,7 +146,7 @@ const Playback = () => {
         </Row>
         <Row>
           <Col span={10}>
-            <QueueViewer queue={FAKE_QUEUE} deleteSong={deleteSong}/>
+            <QueueViewer queue={queue} deleteSong={deleteSong}/>
           </Col>
           <Col span={4} />
           <Col span={10}>

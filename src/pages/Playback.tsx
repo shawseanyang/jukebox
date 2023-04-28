@@ -127,7 +127,7 @@ const Playback = () => {
         isOpen={!hasJoinedGroup()}
         joinGroup={setGroup}
       />
-      <Space direction="vertical" size="large">
+      <Space direction="vertical" size="large" style={{width: "100%"}}>
         <Row>
           <Col span={10}>
             <AlbumCover imageUrl={currentSong!.album.imageUrl}/>

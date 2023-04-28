@@ -12,6 +12,9 @@
     "@types/react": "^18.0.37",
     "@types/react-dom": "^18.0.11",
     "antd": "^5.4.6",
+    "buffer": "^6.0.3",
+    "dotenv": "^16.0.3",
+    "env-cmd": "^10.1.0",
     "firebase": "^9.20.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -22,8 +25,8 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "start": "env-cmd -f .env.dev react-scripts start",
+    "build": "env-cmd -f .env.prod react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
@@ -47,6 +50,8 @@
   },
   "devDependencies": {
     "@types/styled-components": "^5.1.26",
+    "@types/spotify-web-playback-sdk": "^0.1.15",
+    "dotenv-webpack": "^8.0.1",
     "react-router-dom": "^6.10.0"
   }
 }

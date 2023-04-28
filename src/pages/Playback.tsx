@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import JoinGroupModal from "../components/JoinGroupModal";
 import { Col, Row, Space } from "antd";
 import SongAdder from "../components/SongAdder";
@@ -7,6 +7,8 @@ import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
 import { Milliseconds, Queue, Song } from "../types/Music";
 import { FAKE_QUEUE, FAKE_SONG } from "../placeholder_data/fake_music";
+import WebPlayer from "../components/WebPlayer";
+import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
@@ -14,6 +16,41 @@ const Playback = () => {
   const [currentSong, setCurrentSong] = useState<Song | null>(FAKE_SONG);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [songProgress, setSongProgress] = useState<Milliseconds>(0);
+  const [token, setToken] = useState("");
+
+  useEffect(() => {
+    var args = window.location.href;
+    args = args.substring(args.indexOf('?') + 1);
+
+    var code = new URLSearchParams(args).get('code');
+
+    if (code === null) {
+      throw new Error('No code provided');
+    }
+  
+    fetch('https://accounts.spotify.com/api/token', {
+      method: "POST",
+      headers: {
+        'Authorization': 'Basic ' + (Buffer.from(spotify_client_id + ':' + spotify_client_secret).toString('base64')),
+        'Content-Type' : 'application/x-www-form-urlencoded'
+      }, 
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: spotify_redirect_uri
+      })
+    })
+    //.then(response => response.ok ? response.json() : Promise.reject(response))
+    .then(response => response.json())
+    .then(data => {
+      if(data.access_token !== undefined) {
+        console.log(data.access_token)
+        setToken(data.access_token);
+      } else {
+        console.log("No data")
+      }
+    });
+  }, []);
 
   function hasJoinedGroup() {
     return group !== null;
@@ -48,6 +85,7 @@ const Playback = () => {
 
   return (
     <>
+      <WebPlayer token={token} />
       <JoinGroupModal
         isOpen={!hasJoinedGroup()}
         joinGroup={setGroup}

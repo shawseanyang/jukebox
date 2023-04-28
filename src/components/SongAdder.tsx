@@ -21,9 +21,30 @@ const SongAdder = (props: SongAdderProps) => {
 
   const [hasBeenTouched, setHasBeenTouched] = useState<boolean>(false);
 
-  // TODO: implement
+  // TODO: connect with access token
   function searchForSongs(query: string) {
-    setResults(FAKE_QUEUE);
+    fetch(`https://api.spotify.com/v1/search?q=${query}&type=track`, {
+      headers: {
+        Authorization: `Bearer ${process.env.REACT_APP_SPOTIFY_API_KEY}`,
+        },
+    })
+    .then((response) => response.json())
+    .then((data) => {
+      const songs = data.tracks.items.map((item: any) => {
+        return {
+          name: item.name,
+          artists: item.artists.map((artist: any) => {
+            return { name: artist.name };
+          }),
+          album: {
+            name: item.album.name,
+            imageUrl: item.album.images[0].url,
+          },
+          duration: item.duration_ms,
+        };
+      });
+      setResults(songs);
+    });
   }
 
   function onInputChange(query: string) {

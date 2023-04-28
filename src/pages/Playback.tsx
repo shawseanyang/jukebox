@@ -9,6 +9,7 @@ import { Milliseconds, Queue, Song } from "../types/Music";
 import { FAKE_QUEUE, FAKE_SONG } from "../placeholder_data/fake_music";
 import WebPlayer from "../components/WebPlayer";
 import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
+import { Buffer } from "buffer";
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
@@ -114,7 +115,7 @@ const Playback = () => {
           </Col>
           <Col span={4} />
           <Col span={10}>
-            <SongAdder addSong={addSong}/>
+            <SongAdder addSong={addSong} token={token}/>
           </Col>
         </Row>
       </Space>

@@ -4,11 +4,11 @@ import DebouncingInput from "./DebouncingInput";
 import { useState } from "react";
 import { Song } from "../types/Music";
 import SongListItem from "./SongListItem";
-import { FAKE_QUEUE } from "../placeholder_data/fake_music";
 import { SearchOutlined } from "@ant-design/icons";
 
 export type SongAdderProps = {
   addSong: (song: Song) => void;
+  token: string;
 };
 
 const SongAdder = (props: SongAdderProps) => {
@@ -25,7 +25,7 @@ const SongAdder = (props: SongAdderProps) => {
   function searchForSongs(query: string) {
     fetch(`https://api.spotify.com/v1/search?q=${query}&type=track`, {
       headers: {
-        Authorization: `Bearer ${process.env.REACT_APP_SPOTIFY_API_KEY}`,
+        Authorization: `Bearer ${props.token}`,
         },
     })
     .then((response) => response.json())

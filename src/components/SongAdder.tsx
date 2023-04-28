@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Song } from "../types/Music";
 import SongListItem from "./SongListItem";
 import { SearchOutlined } from "@ant-design/icons";
+import { searchForSongs } from "../util/spotifyUtil";
 
 export type SongAdderProps = {
   addSong: (song: Song) => void;
@@ -21,31 +22,6 @@ const SongAdder = (props: SongAdderProps) => {
 
   const [hasBeenTouched, setHasBeenTouched] = useState<boolean>(false);
 
-  function searchForSongs(query: string) {
-    fetch(`https://api.spotify.com/v1/search?q=${query}&type=track`, {
-      headers: {
-        Authorization: `Bearer ${props.token}`,
-        },
-    })
-    .then((response) => response.json())
-    .then((data) => {
-      const songs = data.tracks.items.map((item: any) => {
-        return {
-          name: item.name,
-          artists: item.artists.map((artist: any) => {
-            return { name: artist.name };
-          }),
-          album: {
-            name: item.album.name,
-            imageUrl: item.album.images[0].url,
-          },
-          duration: item.duration_ms,
-        };
-      });
-      setResults(songs);
-    });
-  }
-
   function onInputChange(query: string) {
     if (!hasBeenTouched) {
       setHasBeenTouched(true);
@@ -56,7 +32,7 @@ const SongAdder = (props: SongAdderProps) => {
 
   function onDebouncedInputChange(query: string) {
     setIsLoading(false);
-    searchForSongs(query);
+    searchForSongs(query, props.token, setResults);
   }
 
   const customLocale = {

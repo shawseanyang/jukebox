@@ -6,11 +6,13 @@ import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
 import { Milliseconds, Queue, Song } from "../types/Music";
-import { FAKE_QUEUE, FAKE_SONG } from "../placeholder_data/fake_music";
+import { FAKE_QUEUE, FAKE_SONG } from "../placeholders/fake_music";
 import WebPlayer from "../components/WebPlayer";
 import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
 import { Buffer } from "buffer";
 import SpotifyUtil from "../util/spotifyUtil";
+import Consensus from "../placeholders/fake_consensus_algo";
+import { addSong } from "../types/Playback";
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
@@ -21,11 +23,11 @@ const Playback = () => {
   const [token, setToken] = useState("");
   const [player, setPlayer] = useState<Spotify.Player | null>(null);
   const [isPlayerActive, setPlayerActive] = useState(false);
-  const [trigger, setTrigger] = useState(false);
+  const [songProgressUpdateTrigger, setSongProgressUpdateTrigger] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setTrigger(!trigger);
+      setSongProgressUpdateTrigger(!songProgressUpdateTrigger);
       player?.getCurrentState()?.then(state => {
             if (state) {
               setSongProgress(state.position);
@@ -34,7 +36,7 @@ const Playback = () => {
         );
     }, 500);
     return () => clearInterval(interval);
-  }, [trigger]);
+  }, [songProgressUpdateTrigger]);
 
   useEffect(() => {
     var args = window.location.href;
@@ -58,7 +60,6 @@ const Playback = () => {
         redirect_uri: spotify_redirect_uri
       })
     })
-    //.then(response => response.ok ? response.json() : Promise.reject(response))
     .then(response => response.json())
     .then(data => {
       if(data.access_token !== undefined) {
@@ -73,42 +74,70 @@ const Playback = () => {
   function hasJoinedGroup() {
     return group !== null;
   }
-  
-  function deleteSong(index: number) {
+
+  // Attempts to reach consensus on adding a song to the queue. If successful, adds song to queue and calls the callback.
+  const tryAddSong: addSong = (song, callback) => {
     // TODO: implement consensus algorithm
-    setQueue(queue.filter((_, i) => i !== index));
+    Consensus.addSong(song, (song: Song) => {
+      // If consensus is reached, add song to queue
+      setQueue([song, ...queue])
+      if (callback) {
+        callback(song);
+      }
+    });
   }
 
-  function addSong(song: Song) {
+  // Attempts to reach consensus on deleting a song from the queue. If successful, deletes song from queue and calls the callback.
+  function tryDeleteSong(index: number, callback?: (song: Song) => void) {
     // TODO: implement consensus algorithm
-    setQueue([song, ...queue]);
+    Consensus.deleteSong(index, (index: number) => {
+      // If consensus is reached, delete song from queue
+      setQueue(queue.filter((_, i) => i !== index));
+    });
   }
 
-  function skipSong() {
+  // Attempts to reach consensus on skipping the current song. If successful, skips the current song and calls the callback.
+  function trySkipSong(callback?: (song: Song) => void) {
     // TODO: implement consensus algorithm
-    if (queue.length > 0) {
-      playSong(queue[0]);
-      setQueue(queue.slice(1));
-    }
+    Consensus.skipSong(() => {
+      // If consensus is reached, skip song
+      if (queue.length > 0) {
+        tryPlaySong(queue[0]);
+        setQueue(queue.slice(1));
+      }
+    });
   }
 
-  function playSong(song: Song) {
+  // Attempts to reach consensus on playing a song. If successful, plays the song and calls the callback.
+  function tryPlaySong(song: Song, callback?: (song: Song) => void) {
     // TODO: implement consensus algorithm
-    setCurrentSong(song);
-    SpotifyUtil.playSong(song.uri, token)
+    Consensus.playSong(song, (song: Song) => {
+      // If consensus is reached, play song
+      setCurrentSong(song);
+      SpotifyUtil.playSong(song.uri, token)
+    });
   }
 
-  function scrubTo(location: Milliseconds) {
+  // Attempts to reach consensus on scrubbing to a location in the song. If successful, scrubs to the location and calls the callback.
+  function tryScrubTo(location: Milliseconds, callback?: (song: Song) => void) {
     // TODO: implement consensus algorithm
-    setSongProgress(location)
-    player?.seek(location);
+    Consensus.scrubTo(location, (location: Milliseconds) => {
+      // If consensus is reached, scrub to location
+      setSongProgress(location)
+      player?.seek(location);
+    });
   }
 
-  function togglePlayback() {
+  // Attempts to reach consensus on toggling playback. If successful, toggles playback and calls the callback.
+  function tryTogglePlayback(callback?: (song: Song) => void) {
     // TODO: implement consensus algorithm
-    setIsPlaying(!isPlaying);
-    player?.togglePlay();
+    Consensus.togglePlayback(() => {
+      // If consensus is reached, toggle playback
+      setIsPlaying(!isPlaying);
+      player?.togglePlay();
+    });
   }
+
 
   return (
     <>
@@ -138,20 +167,20 @@ const Playback = () => {
               song={currentSong}
               isPlaying={isPlaying}
               songProgress={songProgress}
-              playSong={playSong}
-              togglePlayback={togglePlayback}
-              skipSong={skipSong}
-              scrubTo={scrubTo}
+              playSong={tryPlaySong}
+              togglePlayback={tryTogglePlayback}
+              skipSong={trySkipSong}
+              scrubTo={tryScrubTo}
             />
           </Col>
         </Row>
         <Row>
           <Col span={10}>
-            <QueueViewer queue={queue} deleteSong={deleteSong}/>
+            <QueueViewer queue={queue} deleteSong={tryDeleteSong}/>
           </Col>
           <Col span={4} />
           <Col span={10}>
-            <SongAdder addSong={addSong} token={token}/>
+            <SongAdder addSong={tryAddSong} token={token}/>
           </Col>
         </Row>
       </Space>

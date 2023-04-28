@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { Layout as Wrapper, Row, Col } from 'antd';
+import { Layout as Wrapper, Row, Col, Space } from 'antd';
 
 const Layout = () => {
   return (
@@ -8,10 +8,14 @@ const Layout = () => {
           backgroundColor: '#E7F0F5',
         }}
       >
-          <Row justify="center" align="middle" style={{minHeight: '100vh'}}>
+          <Row justify="center" align="top" style={{minHeight: '100vh'}}>
             <Col span={6} />
             <Col span={12}>
-              <Outlet />
+              <Space direction="vertical" size="large" style={{width: "100%"}}>
+                <Col />
+                <Outlet />
+                <Col />
+              </Space>
             </Col>
             <Col span={6} />
           </Row>

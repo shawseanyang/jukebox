@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Song } from "../types/Music";
 import SongListItem from "./SongListItem";
 import { SearchOutlined } from "@ant-design/icons";
-import { searchForSongs } from "../util/spotifyUtil";
+import SpotifyUtil from "../util/spotifyUtil";
 
 export type SongAdderProps = {
   addSong: (song: Song) => void;
@@ -32,7 +32,7 @@ const SongAdder = (props: SongAdderProps) => {
 
   function onDebouncedInputChange(query: string) {
     setIsLoading(false);
-    searchForSongs(query, props.token, setResults);
+    SpotifyUtil.searchForSongs(query, props.token, setResults);
   }
 
   const customLocale = {

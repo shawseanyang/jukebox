@@ -128,7 +128,7 @@ const Playback = () => {
           </Col>
           <Col span={4} />
           <Col span={10}>
-            <SongAdder addSong={addSong}/>
+            <SongAdder addSong={addSong} token={token}/>
           </Col>
         </Row>
       </Space>

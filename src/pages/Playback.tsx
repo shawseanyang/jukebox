@@ -10,6 +10,7 @@ import { FAKE_QUEUE, FAKE_SONG } from "../placeholder_data/fake_music";
 import WebPlayer from "../components/WebPlayer";
 import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
 import { Buffer } from "buffer";
+import SpotifyUtil from "../util/spotifyUtil";
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
@@ -94,7 +95,7 @@ const Playback = () => {
   function playSong(song: Song) {
     // TODO: implement consensus algorithm
     setCurrentSong(song);
-    // TODO: query spotify web api with a /me/player/start request with the song uri
+    SpotifyUtil.playSong(song.uri, token)
   }
 
   function scrubTo(location: Milliseconds) {

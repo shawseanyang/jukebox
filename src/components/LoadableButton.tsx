@@ -18,7 +18,7 @@ const LoadableButton = (props: loadableButtonProps) => {
   }
   return (
     <Button
-      key="Enqueue"
+      key="0"
       loading={isLoading}
       onClick={onClick}
       {...props.buttonProps}

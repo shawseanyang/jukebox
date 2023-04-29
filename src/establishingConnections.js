@@ -37,6 +37,7 @@ mdc.ripple.MDCRipple.attachTo(document.querySelector(".mdc-button"));
     Message schema:
     {
         round_type: int
+        ranking_val: int
         message_type: int
         timestamp: optional timestamp
         song: optional string
@@ -73,8 +74,12 @@ const PREPARE = 7
 const ACCEPT = 8
 
 // Consensus globals
-var highestChosenVal = 0;
+var lastPrepareRankingVal = 0;
+var lastAcceptedRankingVal = 0;
 var myRole = NO_ROLE;
+
+// For proposer
+var ranking_val = 1;
 
 // Default configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
@@ -106,6 +111,7 @@ var connectionToUserMap = {};
 var userToConnection = {};
 
 
+// Creates user entry in database 
 async function addUser() {
   console.log("adding user");
   const db = firebase.firestore();
@@ -116,21 +122,20 @@ async function addUser() {
   const userRef = await db.collection("userOffers").add(entry);
   userRef.onSnapshot(handleConnectionUpdate);
   myUserID = userRef.id;
+
+  console.log("I am user", myUserID);
 }
 
-// Creates a session by adding an entry to the sessions table whose ID will be used
-//    to join the session. Also adds an entry to the userOffers table which will be
+// Creates a session by adding an entry to the sessions table. This ID will be used
+//    to join the session. 
+// Also adds an entry to the userOffers table which will be
 //    used as a way to send and receive offers
 
 async function createSession() {
-  // TODO: probs disable some buttons or some shit idk
-
   // Set role as distinguished proposer if creating session
   myRole = DISTINGUISHED_PROPOSER;
 
   const db = firebase.firestore();
-
-  console.log("Starting session with configuration: ", configuration);
 
   const sessionEntry = {
     users: [myUserID],
@@ -140,12 +145,14 @@ async function createSession() {
     } 
     
   };
+  
   const sessionRef = await db.collection("sessions").add(sessionEntry);
   sessionRef.onSnapshot(handleMembershipChange);
 
   document.querySelector(
     "#currentRoom"
   ).innerText = `Current room is ${sessionRef.id} - You are the caller!`;
+  sessionId = sessionRef.id;
 }
 
 function joinRoom() {
@@ -183,24 +190,24 @@ async function joinSession() {
   if (sessionSnapshot.exists) {
     // iterate over all users in the session
     for (let ID of sessionSnapshot.data().users) {
-      console.log(`Found user "${ID}" in session!`);
+      console.log(`Found user ${ID} in session!`);
       const peerConnection = new RTCPeerConnection(configuration);
-
       userToConnection[ID] = peerConnection;
 
+      console.log(`Creating data channel with ${ID}.`);
+      const dataChannel = userToConnection[ID].createDataChannel(`${myUserID}-${ID} data channel`);
+      dataChannel.addEventListener("message", handleNewMessage);
+      dataChannels.push(dataChannel);
 
       registerPeerConnectionListeners(ID);
-      await addICECollection(myUserID, ID, userToConnection[ID], offererCandidateString, answererCandidateString);
 
       const offer = await userToConnection[ID].createOffer();
       await userToConnection[ID].setLocalDescription(offer);
       console.log("Created offer:", offer);
 
-      // userToConnection[ID] = peerConnection;
-
       const userRef = db.collection("userOffers").doc(`${ID}`);
       const userSnapshot = await userRef.get();
-      console.log(`Got snapshot of document for "${ID}": `, userSnapshot.exists);
+      console.log(`Got snapshot of document for ${ID}: `, userSnapshot.exists);
 
       if (userSnapshot.exists) {
         const offers = userSnapshot.data().offers;
@@ -214,15 +221,6 @@ async function joinSession() {
           "offers": offers
         }).then(() => {console.log("Document updated successfully!")});
       }
-
-      userToConnection[ID].addEventListener("datachannel", async (event) => {
-        console.log("New data channel: ", event.channel.label);
-        const dataChannel = event.channel;
-        dataChannel.addEventListener("message", handleNewMessage);
-        const identity = await userToConnection[ID].peerIdentity;
-        connectionToUserMap[identity] = [ID, dataChannel];
-        dataChannels.push(dataChannel);
-      });
     }
   }
   const userList = sessionSnapshot.data().users;
@@ -237,37 +235,29 @@ async function joinSession() {
 function registerPeerConnectionListeners(ID) {
   userToConnection[ID].addEventListener("icegatheringstatechange", () => {
     console.log(
-      `ICE gathering state changed: ${peerConnection.iceGatheringState}`
+      `ICE gathering state changed: ${userToConnection[ID].iceGatheringState}`
     );
   });
 
   userToConnection[ID].addEventListener("connectionstatechange", () => {
-    console.log(`Connection state change: ${peerConnection.connectionState}`);
-    // if (peerConnection.connectionState == "connected") {
-    //   console.log("Getting peerConnection.peerIdentity.");
-    //   const peerIdentity = peerConnection.peerIdentity;
-    //   console.log("Adding to connectionToUserMap.");
-    //   connectionToUserMap[peerIdentity] = (otherUserID, dataChannel);
-    //   console.log("Connection to user map:", connectionToUserMap);
-    // }
-
+    console.log(`Connection state change: ${userToConnection[ID].connectionState}`);
     
     // TODO, consensus round to see if connection is down for everyone
   });
 
-  peerConnection.addEventListener("signalingstatechange", () => {
-    console.log(`Signaling state change: ${peerConnection.signalingState}`);
+  userToConnection[ID].addEventListener("signalingstatechange", () => {
+    console.log(`Signaling state change: ${userToConnection[ID].signalingState}`);
   });
 
-  peerConnection.addEventListener("iceconnectionstatechange ", () => {
+  userToConnection[ID].addEventListener("iceconnectionstatechange ", () => {
     console.log(
-      `ICE connection state change: ${peerConnection.iceConnectionState}`
+      `ICE connection state change: ${userToConnection[ID].iceConnectionState}`
     );
   });
 
-  peerConnection.addEventListener("datachannel", (event) => {
-    console.log(`Data channel made for user ${username}`);
-  });
+  // userToConnection[ID].addEventListener("datachannel", (event) => {
+  //   console.log(`Data channel made for user ${myUserID}`);
+  // });
 }
 
 async function sendMessage() {
@@ -277,15 +267,12 @@ async function sendMessage() {
 
   for (let dataChannel of dataChannels) {
     console.log("Sending message over ", dataChannel.label);
-    dataChannel.send(message);
+    dataChannel.send(JSON.stringify(message));
   }
-  // for (let [peerIdentity, [otherUserId, dataChannel]] of Object.entries(connectionToUserMap)) {
-  //   console.log("Sending message to ", otherUserId);
-  //   dataChannel.send(message);
-  // }
 
 }
 
+// Runs when a new person joins a session and attempts to form a connection
 async function handleConnectionUpdate(snapshot) {
   console.log("Update to connections (answers/offers)");
   if (snapshot.exists) {
@@ -293,21 +280,36 @@ async function handleConnectionUpdate(snapshot) {
     const offerDict = snapshot.data().offers;
     console.log("Offers list is now: ", offerDict);
 
-    // iterate over list of offers
+    // iterate over list of offers (usually of length 1)
     for (let otherUserID in offerDict) {
       const offer = offerDict[otherUserID];
-      const peerConnection = new RTCPeerConnection(configuration);
 
+      // Creates new peer connection for the offer
+      const peerConnection = new RTCPeerConnection(configuration);
       userToConnection[otherUserID] = peerConnection;
 
+      // Registers listeners for connection being established
       registerPeerConnectionListeners(otherUserID);
-      await addICECollection(otherUserID, myUserID, peerConnection, answererCandidateString, offererCandidateString);
+      // Creating a data channel
+
+      userToConnection[otherUserID].addEventListener("datachannel", async (event) => {
+        console.log("New data channel: ", event.channel.label);
+        const dataChannel = event.channel;
+        
+        dataChannel.addEventListener("message", handleNewMessage);
+        dataChannels.push(dataChannel);
+        const identity = await userToConnection[otherUserID].peerIdentity;
+        connectionToUserMap[identity] = [otherUserID, dataChannel];
+        console.log("Connection to user map: ", connectionToUserMap);
+      });
+
       console.log("Offer:", offer);
       await userToConnection[otherUserID].setRemoteDescription(offer);
       const answer = await userToConnection[otherUserID].createAnswer();
       await userToConnection[otherUserID].setLocalDescription(answer);
       console.log("Set remote and local descriptions.");
-
+      
+      await addICECollection(otherUserID, myUserID, otherUserID, answererCandidateString, offererCandidateString);
 
       // Notify other user of our answer
       const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
@@ -325,39 +327,16 @@ async function handleConnectionUpdate(snapshot) {
         });
         console.log("Document updated successfully!");
       }
-
-      // create data channel
-      console.log(`userToConnection["${otherUserID}"]`, userToConnection[otherUserID]);
-      console.log(`Creating data channel with "${otherUserID}".`);
-      const dataChannel = userToConnection[otherUserID].createDataChannel(`"${myUserID}"-"${otherUserID}" data channel`);
-      dataChannel.addEventListener("message", handleNewMessage);
-
-      console.log("Getting peerConnection.peerIdentity.");
-      
-      // peerConnection.peerIdentity.then((id) => {
-      //   console.log("data from peerIdentity.then", id)
-      //   console.log("Adding to connectionToUserMap.");
-      //   connectionToUserMap[id] = [otherUserID, dataChannel];
-      //   console.log("Connection to user map:", connectionToUserMap);
-      // });
-      dataChannels.push(dataChannel);
-      // try {
-      //   const identity = await peerConnection.peerIdentity;
-      //   console.log("Adding to connectionToUserMap");
-      //   connectionToUserMap[identity] = [otherUserID, dataChannel];
-      // } catch (err) {
-      //   console.log("Error identifying remote peer: ", err);
-      // }
-
     }
     console.log("Finished with all offers.");
 
     // iterate over answers
     var answerDict = snapshot.data().answers;
     for (let ID in answerDict) {
-      console.log(`New answer from "${ID}": `, answerDict[ID]);
-      console.log(`userToConnection["${ID}"]: `, userToConnection[ID]);
+      console.log(`New answer from ${ID}: `, answerDict[ID]);
+      console.log(`userToConnection[${ID}]: `, userToConnection[ID]);
       await userToConnection[ID].setRemoteDescription(answerDict[ID]);
+      await addICECollection(myUserID, ID, ID, offererCandidateString, answererCandidateString);
     }
     console.log("Finished with all answers.");
 
@@ -368,20 +347,19 @@ async function handleConnectionUpdate(snapshot) {
     });
   } else {
     console.log(
-      `User with ID "${myUserID}" got an offer update but snapshot did not exist.`
+      `User with ID ${myUserID} got an offer update but snapshot did not exist.`
     );
   }
 }
 
-// Every ICE transport used by the connection is either in use (state connected or completed) or is closed (state closed); in addition, at least one transport is either connected or completed.
 
-
-async function addICECollection(offererUserID, answererUserID, peerConnection, localName, remoteName) {
+async function addICECollection(offererUserID, answererUserID, peerConnectionID, localName, remoteName) {
   const db = firebase.firestore();
-  const entryRef = db.collection("ICECollections").doc(`${offererUserID}${answererUserID}`);
+  const entryRef = await db.collection("sessions").doc(`${sessionId}`).collection("ICECollections").doc(`${offererUserID}${answererUserID}`);
 
   const candidatesCollection = entryRef.collection(localName);
-  peerConnection.addEventListener('icecandidate', event => {
+  console.log("Adding event listener for icecandidate to: ", userToConnection[peerConnectionID]);
+  userToConnection[peerConnectionID].addEventListener('icecandidate', event => {
     if (!event.candidate) {
       console.log('Got final candidate!');
       return;
@@ -392,41 +370,14 @@ async function addICECollection(offererUserID, answererUserID, peerConnection, l
 
   entryRef.collection(remoteName).onSnapshot(snapshot => {
     snapshot.docChanges().forEach(async change => {
-        if (change.type === "added") {
-          let data = change.doc.data();
-          console.log('Got new remote ICE candidate: ${JSON.stringify(data)}');
-          await peerConnection.addIceCandidate(new RTCIceCandidate(data));
-        }
+      if (change.type === "added") {
+        let data = change.doc.data();
+        console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
+        await userToConnection[peerConnectionID].addIceCandidate(data);
+      }
     });
-})
+  })
 }
-
-// async function addICECollection(peerConnection, otherUserID) {
-//   console.log("Adding ICE collections.");
-//   // get referenced to my own table
-//   const db = firebase.firestore();
-//   const userRef = db.collection("userOffers").doc(`${myUserID}`);
-
-//   // create entry in ICEServers collection with other user
-//   const candidatesCollection = userRef.collection("ICEServers").doc(`${otherUserID}`).collection("localICECollection");
-//   peerConnection.addEventListener("icecandidate", (event) => {
-//     console.log("Adding ICE candidate");
-//     if (event.candidate) {
-//       const json = event.candidate.toJSON();
-//       candidatesCollection.add(json);
-//     }
-//   });
-
-//   userRef.collection("ICEServers").doc(`${otherUserID}`).collection("remoteICECollection").onSnapshot((snapshot) => {
-//       snapshot.docChanges().forEach((change) => {
-//         if (change.type === "added") {
-//           const candidate = new RTCIceCandidate(change.doc.data());
-//           peerConnection.addIceCandidate(candidate);
-//         }
-//       });
-//   });
-//   console.log("Finished adding ICE stuff.");
-// }
 
 async function handleMembershipChange(snapshot) {
   console.log("Update to group membership");
@@ -462,15 +413,42 @@ async function handleMembershipChange(snapshot) {
 }
 
 async function handleNewMessage(event) {
-  console.log(`new message of "${event.data}`);
+  console.log(`new message of ${event.data}`);
   // TODO: implement!!
 
   var message = JSON.parse(event.data);
+
+  // switch (myRole) {
+  //   case DISTINGUISHED_PROPOSER:
+  //     break;
+  //   case ACCEPTOR:
+  //     break;
+  //   case LEARNER:
+  //     break;
+  //   default:
+  //     console.log("no role")
+  // }
   
   if (message.round == PREPARE) {
-    if (true) {
-      
+    if (lastPrepareRankingVal > message.ranking_val) {
+
+      // TODO: send message back about how I agreed to vote on something higher
+    } else if (lastAcceptedRankingVal === lastPrepareRankingVal && lastAcceptedRankingVal < message.ranking_val) {
+
+      // TODO: send message back agreeing to vote on this ballot
+
+    } else if (true) {
+
     }
+// lastAccepted < message.ranking_val
+//       var agreedToVoteOn = 0;
+// var lastAccepted = 0;
+// var myRole = NO_ROLE;
+
+// // For proposer
+// var ranking_val = 1;
+      
+    
 
   } else if (message.round == ACCEPT) {
       switch (message.type) {

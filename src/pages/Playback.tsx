@@ -6,7 +6,7 @@ import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
 import { Milliseconds, Queue, Song } from "../types/Music";
-import { FAKE_QUEUE, FAKE_SONG } from "../placeholder_data/fake_music";
+import { FAKE_SONG } from "../placeholders/fake_music";
 import WebPlayer from "../components/WebPlayer";
 import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
 import { Buffer } from "buffer";

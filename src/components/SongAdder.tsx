@@ -7,27 +7,22 @@ import SongListItem from "./SongListItem";
 import { SearchOutlined } from "@ant-design/icons";
 import SpotifyUtil from "../util/spotifyUtil";
 import { addSong } from "../types/Playback";
+import LoadableButton from "./LoadableButton";
 
 export type SongAdderProps = {
   addSong: addSong;
   token: string;
 };
 
-const AddButton = (props: {song: Song; addSong: addSong}) => {
-  const [isLoading, setLoading] = useState<boolean>(false);
-  function onClick () {
-    setLoading(true);
-    props.addSong(props.song, () => setLoading(false));
-  }
+const AddButton = (props: {song: Song, addSong: addSong}) => {
   return (
-    <Button
-      type="link"
-      key="Enqueue"
-      loading={isLoading}
-      onClick={onClick}
+    <LoadableButton
+      args={[props.song]}
+      callback={props.addSong}
+      buttonProps={{type: "link"}}
     >
       Add
-    </Button>
+    </LoadableButton>
   )
 }
 

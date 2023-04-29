@@ -3,11 +3,25 @@ import { Artist, Song } from "../types/Music";
 import Title from "antd/es/typography/Title";
 import CenteredTitle from "./CenteredTitle";
 import SongListItem from "./SongListItem";
+import { deleteSong } from "../types/Playback";
+import LoadableButton from "./LoadableButton";
 
 export type QueueViewerProps = {
   queue: Song[];
-  deleteSong: (index: number) => void;
+  deleteSong: deleteSong;
 };
+
+const DeleteButton = (props: {index: number, deleteSong: deleteSong}) => {
+  return (
+    <LoadableButton
+      args={[props.index]}
+      callback={props.deleteSong}
+      buttonProps={{type: "link"}}
+    >
+      Delete
+    </LoadableButton>
+  )
+}
 
 const QueueViewer = (props: QueueViewerProps) => {
 
@@ -33,7 +47,7 @@ const QueueViewer = (props: QueueViewerProps) => {
       renderItem={(song, index) => (
         <List.Item
           actions={[
-            <a key="delete" onClick={() => props.deleteSong(index)}>Delete</a>
+            <DeleteButton index={index} deleteSong={props.deleteSong} />
           ]}>
           <SongListItem song={song} />
         </List.Item>

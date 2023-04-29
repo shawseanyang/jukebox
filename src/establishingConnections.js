@@ -102,12 +102,7 @@ var connectionToUserMap = {};
 // dictionary from userID -> peerConnection
 var userToConnection = {};
 
-<<<<<<< HEAD
 // Creates user entry in database
-=======
-
-// Creates user entry in database 
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 async function addUser() {
   console.log("adding user");
   const db = firebase.firestore();
@@ -123,11 +118,7 @@ async function addUser() {
 }
 
 // Creates a session by adding an entry to the sessions table. This ID will be used
-<<<<<<< HEAD
 //    to join the session.
-=======
-//    to join the session. 
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 // Also adds an entry to the userOffers table which will be
 //    used as a way to send and receive offers
 
@@ -144,11 +135,7 @@ async function createSession() {
       ID: "",
     },
   };
-<<<<<<< HEAD
 
-=======
-  
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
   const sessionRef = await db.collection("sessions").add(sessionEntry);
   sessionRef.onSnapshot(handleMembershipChange);
 
@@ -198,7 +185,6 @@ async function joinSession() {
       userToConnection[ID] = peerConnection;
 
       console.log(`Creating data channel with ${ID}.`);
-<<<<<<< HEAD
       const dataChannel = userToConnection[ID].createDataChannel(
         `${myUserID}-${ID} data channel`
       );
@@ -223,13 +209,6 @@ async function joinSession() {
         connectionToUserMap[identity] = [ID, dataChannel];
         console.log("Connection to user map: ", connectionToUserMap);
       });
-=======
-      const dataChannel = userToConnection[ID].createDataChannel(`${myUserID}-${ID} data channel`);
-      dataChannel.addEventListener("message", handleNewMessage);
-      dataChannels.push(dataChannel);
-
-      registerPeerConnectionListeners(ID);
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 
       const offer = await userToConnection[ID].createOffer();
       await userToConnection[ID].setLocalDescription(offer);
@@ -278,20 +257,14 @@ function registerPeerConnectionListeners(ID) {
   });
 
   userToConnection[ID].addEventListener("connectionstatechange", () => {
-<<<<<<< HEAD
     console.log(
       `Connection state change: ${userToConnection[ID].connectionState}`
     );
 
-=======
-    console.log(`Connection state change: ${userToConnection[ID].connectionState}`);
-    
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
     // TODO, consensus round to see if connection is down for everyone
   });
 
   userToConnection[ID].addEventListener("signalingstatechange", () => {
-<<<<<<< HEAD
     console.log(
       `Signaling state change: ${userToConnection[ID].signalingState}`
     );
@@ -303,17 +276,6 @@ function registerPeerConnectionListeners(ID) {
     );
   });
 
-=======
-    console.log(`Signaling state change: ${userToConnection[ID].signalingState}`);
-  });
-
-  userToConnection[ID].addEventListener("iceconnectionstatechange ", () => {
-    console.log(
-      `ICE connection state change: ${userToConnection[ID].iceConnectionState}`
-    );
-  });
-
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
   // userToConnection[ID].addEventListener("datachannel", (event) => {
   //   console.log(`Data channel made for user ${myUserID}`);
   // });
@@ -327,10 +289,6 @@ async function sendMessage() {
     console.log("Sending message over ", dataChannel.label);
     dataChannel.send(JSON.stringify(message));
   }
-<<<<<<< HEAD
-=======
-
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 }
 
 // Runs when a new person joins a session and attempts to form a connection
@@ -353,7 +311,6 @@ async function handleConnectionUpdate(snapshot) {
       registerPeerConnectionListeners(otherUserID);
       // Creating a data channel
 
-<<<<<<< HEAD
       userToConnection[otherUserID].addEventListener(
         "datachannel",
         async (event) => {
@@ -370,25 +327,12 @@ async function handleConnectionUpdate(snapshot) {
           console.log("Connection to user map: ", connectionToUserMap);
         }
       );
-=======
-      userToConnection[otherUserID].addEventListener("datachannel", async (event) => {
-        console.log("New data channel: ", event.channel.label);
-        const dataChannel = event.channel;
-        
-        dataChannel.addEventListener("message", handleNewMessage);
-        dataChannels.push(dataChannel);
-        const identity = await userToConnection[otherUserID].peerIdentity;
-        connectionToUserMap[identity] = [otherUserID, dataChannel];
-        console.log("Connection to user map: ", connectionToUserMap);
-      });
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 
       console.log("Offer:", offer);
       await userToConnection[otherUserID].setRemoteDescription(offer);
       const answer = await userToConnection[otherUserID].createAnswer();
       await userToConnection[otherUserID].setLocalDescription(answer);
       console.log("Set remote and local descriptions.");
-<<<<<<< HEAD
 
       await addICECollection(
         otherUserID,
@@ -397,10 +341,6 @@ async function handleConnectionUpdate(snapshot) {
         answererCandidateString,
         offererCandidateString
       );
-=======
-      
-      await addICECollection(otherUserID, myUserID, otherUserID, answererCandidateString, offererCandidateString);
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 
       // Notify other user of our answer
       const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
@@ -427,7 +367,6 @@ async function handleConnectionUpdate(snapshot) {
       console.log(`New answer from ${ID}: `, answerDict[ID]);
       console.log(`userToConnection[${ID}]: `, userToConnection[ID]);
       await userToConnection[ID].setRemoteDescription(answerDict[ID]);
-<<<<<<< HEAD
       await addICECollection(
         myUserID,
         ID,
@@ -435,9 +374,6 @@ async function handleConnectionUpdate(snapshot) {
         offererCandidateString,
         answererCandidateString
       );
-=======
-      await addICECollection(myUserID, ID, ID, offererCandidateString, answererCandidateString);
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
     }
     console.log("Finished with all answers.");
 
@@ -453,7 +389,6 @@ async function handleConnectionUpdate(snapshot) {
   }
 }
 
-<<<<<<< HEAD
 async function addICECollection(
   offererUserID,
   answererUserID,
@@ -482,40 +417,18 @@ async function addICECollection(
       }
       console.log("Got candidate: ", event.candidate);
       candidatesCollection.add(event.candidate.toJSON());
-=======
-
-async function addICECollection(offererUserID, answererUserID, peerConnectionID, localName, remoteName) {
-  const db = firebase.firestore();
-  const entryRef = await db.collection("sessions").doc(`${sessionId}`).collection("ICECollections").doc(`${offererUserID}${answererUserID}`);
-
-  const candidatesCollection = entryRef.collection(localName);
-  console.log("Adding event listener for icecandidate to: ", userToConnection[peerConnectionID]);
-  userToConnection[peerConnectionID].addEventListener('icecandidate', event => {
-    if (!event.candidate) {
-      console.log('Got final candidate!');
-      return;
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
     }
   );
 
-<<<<<<< HEAD
   entryRef.collection(remoteName).onSnapshot((snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
-=======
-  entryRef.collection(remoteName).onSnapshot(snapshot => {
-    snapshot.docChanges().forEach(async change => {
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
       if (change.type === "added") {
         let data = change.doc.data();
         console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
         await userToConnection[peerConnectionID].addIceCandidate(data);
       }
     });
-<<<<<<< HEAD
   });
-=======
-  })
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 }
 
 async function handleMembershipChange(snapshot) {
@@ -566,7 +479,6 @@ async function handleNewMessage(event) {
   //   default:
   //     console.log("no role")
   // }
-<<<<<<< HEAD
 
   if (message.round == PREPARE) {
     if (lastPrepareRankingVal > message.ranking_val) {
@@ -582,29 +494,6 @@ async function handleNewMessage(event) {
     //       var agreedToVoteOn = 0;
     // var lastAccepted = 0;
     // var myRole = NO_ROLE;
-=======
-  
-  if (message.round == PREPARE) {
-    if (lastPrepareRankingVal > message.ranking_val) {
-
-      // TODO: send message back about how I agreed to vote on something higher
-    } else if (lastAcceptedRankingVal === lastPrepareRankingVal && lastAcceptedRankingVal < message.ranking_val) {
-
-      // TODO: send message back agreeing to vote on this ballot
-
-    } else if (true) {
-
-    }
-// lastAccepted < message.ranking_val
-//       var agreedToVoteOn = 0;
-// var lastAccepted = 0;
-// var myRole = NO_ROLE;
-
-// // For proposer
-// var ranking_val = 1;
-      
-    
->>>>>>> e7f1f70ab3c4998a286eeb481bba295b4afdd1fb
 
     // // For proposer
     // var ranking_val = 1;

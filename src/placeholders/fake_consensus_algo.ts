@@ -27,7 +27,7 @@ module Consensus {
   // Tries to skip the current song. If successful, calls the callback.
   export function skipSong(callback: () => void) {
     if (success) {
-      callback();
+      wait(callback);
     }
   }
   // Tries to play the given song. If successful, calls the callback with the song.

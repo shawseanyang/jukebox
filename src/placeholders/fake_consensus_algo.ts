@@ -8,7 +8,7 @@ const success = true;
 function wait(func: (...args: any[]) => void, ...args: any[]) {
   setTimeout(() => {
     func(...args);
-  }, 5000);
+  }, 1000);
 }
 
 module Consensus {

@@ -13,6 +13,24 @@ export type SongAdderProps = {
   token: string;
 };
 
+const AddButton = (props: {song: Song; addSong: addSong}) => {
+  const [isLoading, setLoading] = useState<boolean>(false);
+  function onClick () {
+    setLoading(true);
+    props.addSong(props.song, () => setLoading(false));
+  }
+  return (
+    <Button
+      type="link"
+      key="Enqueue"
+      loading={isLoading}
+      onClick={onClick}
+    >
+      Add
+    </Button>
+  )
+}
+
 const SongAdder = (props: SongAdderProps) => {
 
   const [results, setResults] = useState<Song[]>([]);
@@ -34,24 +52,6 @@ const SongAdder = (props: SongAdderProps) => {
   function onDebouncedInputChange(query: string) {
     setIsLoading(false);
     SpotifyUtil.searchForSongs(query, props.token, setResults);
-  }
-
-  const AddButton = (props: {song: Song; addSong: addSong}) => {
-    const [isLoading, setLoading] = useState<boolean>(false);
-    function onClick () {
-      setLoading(true);
-      props.addSong(props.song, () => setLoading(false));
-    }
-    return (
-      <Button
-        type="link"
-        key="Enqueue"
-        loading={isLoading}
-        onClick={onClick}
-      >
-        Add
-      </Button>
-    )
   }
 
   const customLocale = {

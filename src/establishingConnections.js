@@ -48,7 +48,7 @@ const offererCandidateString = "offererCandidates";
 var username = "";
 var myUserID = "";
 var sessionId = "";
-var groupMembers = 0; // Number of acceptors is floor((groupMembers - 1)/2) + 1
+var consensusMajority = 0; // Number of acceptors is floor((consensusMajority - 1)/2) + 1
 var queue = []; // Array of songs
 
 // Role strings
@@ -68,8 +68,13 @@ const SKIP = 6;
 // Round types
 const PREPARE = 7;
 const ACCEPT = 8;
-const REQUEST = 9;
-const LEARN = 10;
+const PROMISE = 9;
+const CANT_PROMISE = 10;
+const ACCEPTED = 11;
+const REQUEST = 12;
+const LEARN = 13;
+
+// TODO: Mutexes
 
 // Consensus globals
 var lastPrepareRankingVal = 0;
@@ -80,6 +85,11 @@ var myRole = NO_ROLE;
 var ranking_val = 1;
 var roundInProgress = false;
 var messageQueue = [];
+var promises = 0
+var acceptances = 0
+
+// For learner
+var lastLearned = 0;
 
 // Default configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
@@ -96,8 +106,18 @@ function init() {
   document.querySelector("#cameraBtn").addEventListener("click", addUser);
   document.querySelector("#createBtn").addEventListener("click", createSession);
   document.querySelector("#joinBtn").addEventListener("click", joinRoom);
-  document.querySelector("#messageBtn").addEventListener("click", sendMessage);
+  document.querySelector("#messageBtn").addEventListener("click", toySendMessage);
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector("#room-dialog"));
+}
+
+async function toySendMessage() {
+  let message = document.querySelector("#message-test-id").value;
+  console.log("about to send message ", message);
+
+  for (let userID in userToConnection) {
+    console.log("Sending message over ", userToConnection[userID].dataChannel.label);
+    userToConnection[userID].dataChannel.send(JSON.stringify(message));
+  }
 }
 
 
@@ -109,14 +129,15 @@ var currMembers = new Set();
 async function addUser() {
   console.log("adding user");
   const db = firebase.firestore();
-  const entry = {
-    offers: {},
-    answers: {},
-  };
-  const userRef = await db.collection("userOffers").add(entry);
-  userRef.onSnapshot(handleConnectionUpdate);
+  const userRef = await db.collection("userOffers").add({nothing: 0});
+  // const userRef = await db.collection("userOffers").doc();
+  userRef.collection("offers").onSnapshot((snapshot) => {
+    snapshot.docChanges().forEach(handleNewOffer);
+  });
+  userRef.collection("answers").onSnapshot((snapshot) => {
+    snapshot.docChanges().forEach(handleNewAnswer);
+  });
   myUserID = userRef.id;
-
   console.log("I am user", myUserID);
 }
 
@@ -183,57 +204,7 @@ async function joinSession() {
     // iterate over all users in the session
     for (let ID of sessionSnapshot.data().users) {
       console.log(`Found user ${ID} in session!`);
-      const peerConnection = new RTCPeerConnection(configuration);
-      userToConnection[ID] = {};
-      userToConnection[ID].peerConnection = peerConnection;
-
-      console.log(`Creating data channel with ${ID}.`);
-      const dataChannel = userToConnection[ID].peerConnection.createDataChannel(
-        `${myUserID}-${ID} data channel`
-      );
-      userToConnection[ID].dataChannel = dataChannel;
-
-      // Add event handler for error, open, close and message
-      userToConnection[ID].dataChannel.onerror = () => {
-        console.log(`Data channel to ${ID} had error.`);
-        userToConnection[ID].dataChannel.close();
-      }
-      userToConnection[ID].dataChannel.onopen = () => {
-        console.log(`Data channel to ${ID} is open`)
-      };
-      userToConnection[ID].dataChannel.onclose = () => {
-        console.log(`Data channel to ${ID} is closed`)
-      };
-      userToConnection[ID].dataChannel.onmessage = handleNewMessage;
-
-      console.log("Added listener: ", dataChannel);
-
-      registerPeerConnectionListeners(ID);
-
-      const offer = await userToConnection[ID].peerConnection.createOffer();
-      await userToConnection[ID].peerConnection.setLocalDescription(offer);
-      console.log("Created offer:", offer);
-
-      const userRef = db.collection("userOffers").doc(`${ID}`);
-      const userSnapshot = await userRef.get();
-      console.log(`Got snapshot of document for ${ID}: `, userSnapshot.exists);
-
-      if (userSnapshot.exists) {
-        const offers = userSnapshot.data().offers;
-        const offerObj = {
-          type: offer.type,
-          sdp: offer.sdp,
-        };
-        offers[myUserID] = offerObj;
-        console.log("Their offers are: ", offers);
-        userRef
-          .update({
-            offers: offers,
-          })
-          .then(() => {
-            console.log("Document updated successfully!");
-          });
-      }
+      sendPeerConnectionOffer(ID);
     }
   }
   const userList = sessionSnapshot.data().users;
@@ -246,6 +217,55 @@ async function joinSession() {
   sessionRef.onSnapshot(handleMembershipChange);
 }
 
+async function sendPeerConnectionOffer(ID) {
+  const db = firebase.firestore();
+  const peerConnection = new RTCPeerConnection(configuration);
+  userToConnection[ID] = {};
+  userToConnection[ID].peerConnection = peerConnection;
+
+  console.log(`Creating data channel with ${ID}.`);
+  const dataChannel = userToConnection[ID].peerConnection.createDataChannel(
+    `${myUserID}-${ID} data channel`
+  );
+  userToConnection[ID].dataChannel = dataChannel;
+
+  // Add event handler for error, open, close and message
+  userToConnection[ID].dataChannel.onerror = () => {
+    console.log(`Data channel to ${ID} had error.`);
+    userToConnection[ID].dataChannel.close();
+  }
+  userToConnection[ID].dataChannel.onopen = () => {
+    console.log(`Data channel to ${ID} is open`)
+  };
+  userToConnection[ID].dataChannel.onclose = () => {
+    console.log(`Data channel to ${ID} is closed`)
+  };
+  userToConnection[ID].dataChannel.onmessage = handleNewMessage;
+
+  console.log("Added listener: ", dataChannel);
+
+  registerPeerConnectionListeners(ID);
+
+  const offer = await userToConnection[ID].peerConnection.createOffer();
+  await userToConnection[ID].peerConnection.setLocalDescription(offer);
+  console.log("Created offer:", offer);
+
+  const userRef = db.collection("userOffers").doc(`${ID}`);
+  const userSnapshot = await userRef.get();
+  console.log(`Got snapshot of document for ${ID}: `, userSnapshot.exists);
+
+  if (userSnapshot.exists) {
+    const offerObj = {
+      id: myUserID,
+      type: offer.type,
+      sdp: offer.sdp,
+    };
+    console.log(`Adding offer ${offerObj} to offers collection of ${ID}`);
+    userRef.collection("offers").doc(myUserID).set(offerObj);
+  }
+}
+
+
 // Pass in the ID of a peer connection
 function registerPeerConnectionListeners(ID) {
   userToConnection[ID].peerConnection.addEventListener("icegatheringstatechange", () => {
@@ -255,7 +275,6 @@ function registerPeerConnectionListeners(ID) {
   });
 
   userToConnection[ID].peerConnection.addEventListener("connectionstatechange", async () => {
-    console.log(`Connection state change: ${userToConnection[ID].peerConnection.connectionState}`);
     const db = firebase.firestore();
     switch(userToConnection[ID].peerConnection.connectionState) {
       case "connecting":
@@ -265,22 +284,51 @@ function registerPeerConnectionListeners(ID) {
         console.log(`Connected to ${ID}`)
         break;
       case "failed":
-        console.log(`One or more of ICE transports on connection with ${ID} has failed`);
-      case "disconnected":
-        // TODO: Add "disconnected" case so that we remove entry, close datachannels and peerConnections, etc.
-        console.log(`Disconnected from ${ID}`);
-        userToConnection[ID].dataChannel.close();
+        console.log(`Connection to ${ID} failed. One or more of ICE transports has failed`);
+        console.log(`Attempting to reconnect with ${ID}`);
         userToConnection[ID].peerConnection.close();
+        delete userToConnection[ID];
+        sendPeerConnectionOffer(ID);
         currMembers.delete(ID);
-        const sessionMembers = await db.collection("sessions").doc(`${sessionId}`).data().users;
+        // TODO: restart connection stuff?
+        break;
+      case "disconnected":
+        console.log(`Disconnected from ${ID}`);
+        const sessionRef = db.collection("sessions").doc(`${sessionId}`);
+        const sessionSnapshot = await sessionRef.get();
+        const sessionMembers = sessionSnapshot.data().users;
+        
         const idxToRemove = sessionMembers.indexOf(ID);
         if (idxToRemove > -1) {
           sessionMembers.splice(idxToRemove, 1);
         }
-        await db.collection("sessions").doc(`${sessionId}`).update({
-          users: sessionMembers
+        
+        var roleRemoved;
+        if (idxToRemove == 0) {
+          roleRemoved = DISTINGUISHED_PROPOSER;
+        } else if (idxToRemove < Math.floor((currMembers.size - 1) / 2) + 2) {
+          roleRemoved = ACCEPTOR;
+        } else {
+          roleRemoved = LEARNER;
+        }
+
+        await sessionRef.update({
+          users: sessionMembers,
+          personDropped: {
+            ID: ID,
+            role: roleRemoved
+          }
         });
         console.log(`Removed user ${ID}`);
+        
+        if (ID in userToConnection) {
+          if (userToConnection[ID].dataChannel.readyState === "open") {
+            userToConnection[ID].dataChannel.close();
+          }
+          userToConnection[ID].peerConnection.close();
+          delete userToConnection[ID];
+        }
+        currMembers.delete(ID);
         break;
       case "closed":
         console.log(`Closed peer connection to ${ID}`);
@@ -305,122 +353,85 @@ function registerPeerConnectionListeners(ID) {
   });
 }
 
-// Runs when a new person joins a session and attempts to form a connection
-async function handleConnectionUpdate(snapshot) {
-  console.log("Update to connections (answers/offers)");
-  if (snapshot.exists) {
-    const db = firebase.firestore();
-    const offerDict = snapshot.data().offers;
-    console.log("Offers list is now: ", offerDict);
+async function handleNewOffer(change) {
+  const db = firebase.firestore();
+  const offer = {
+    type: change.doc.data().type,
+    sdp: change.doc.data().sdp
+  };
+  const otherUserID = change.doc.data().id;
+  console.log(`New offer from ${otherUserID}: `, offer);
+  const peerConnection = new RTCPeerConnection(configuration);
+  userToConnection[otherUserID] = {};
+  userToConnection[otherUserID].peerConnection = peerConnection;
+  registerPeerConnectionListeners(otherUserID);
 
-    // iterate over list of offers (usually of length 1)
-    for (let otherUserID in offerDict) {
+  // Creating a data channel
+  userToConnection[otherUserID].peerConnection.addEventListener(
+    "datachannel",
+    async (event) => {
+      console.log("New data channel: ", event);
+      const dataChannel = event.channel;
+      userToConnection[otherUserID].dataChannel = dataChannel;
 
-      // Don't handle same offer twice
-      if (currMembers.has(otherUserID)) {
-        console.log(`Already connected to ${otherUserID}, not handling offer`);
-        continue;
+      // Add event handler for error, close, open and message
+      userToConnection[otherUserID].dataChannel.onerror = () => {
+        console.log(`Data channel to ${otherUserID} had error.`);
+        userToConnection[otherUserID].dataChannel.close();
       }
+      userToConnection[otherUserID].dataChannel.onopen = () => {
+        console.log(`Data channel to ${otherUserID} is open`)
+      };
+      userToConnection[otherUserID].dataChannel.onclose = () => {
+        console.log(`Data channel to ${otherUserID} is closed`)
+      };
+      userToConnection[otherUserID].dataChannel.onmessage = handleNewMessage;
       
-      const offer = offerDict[otherUserID];
-      
-      // Creates new peer connection for the offer
-      const peerConnection = new RTCPeerConnection(configuration);
-      userToConnection[otherUserID] = {};
-      userToConnection[otherUserID].peerConnection = peerConnection;
-      
-      // Registers listeners for connection being established
-      registerPeerConnectionListeners(otherUserID);
-      // Creating a data channel
-      
-      userToConnection[otherUserID].peerConnection.addEventListener(
-        "datachannel",
-        async (event) => {
-          console.log("New data channel: ", event);
-          const dataChannel = event.channel;
-          userToConnection[otherUserID].dataChannel = dataChannel;
-
-          // Add event handler for error, close, open and message
-          userToConnection[otherUserID].dataChannel.onerror = () => {
-            console.log(`Data channel to ${otherUserID} had error.`);
-            userToConnection[otherUserID].dataChannel.close();
-          }
-          userToConnection[otherUserID].dataChannel.onopen = () => {
-            console.log(`Data channel to ${otherUserID} is open`)
-          };
-          userToConnection[otherUserID].dataChannel.onclose = () => {
-            console.log(`Data channel to ${otherUserID} is closed`)
-          };
-          userToConnection[otherUserID].dataChannel.onmessage = handleNewMessage;
-          
-          console.log("Added listener: ", dataChannel);
-        }
-      );
-        
-      console.log("Offer:", offer);
-      await userToConnection[otherUserID].peerConnection.setRemoteDescription(offer);
-      const answer = await userToConnection[otherUserID].peerConnection.createAnswer();
-      await userToConnection[otherUserID].peerConnection.setLocalDescription(answer);
-      console.log("Set remote and local descriptions.");
-      
-      await addICECollection(
-        otherUserID,
-        myUserID,
-        otherUserID,
-        answererCandidateString,
-      offererCandidateString
-      );
-      
-      // Notify other user of our answer
-      const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
-      const otherUserSnapshot = await otherUserRef.get();
-      if (otherUserSnapshot.exists) {
-        const theirAnswers = otherUserSnapshot.data().answers;
-        const answerObj = {
-          type: answer.type,
-          sdp: answer.sdp,
-        };
-        theirAnswers[myUserID] = answerObj;
-        console.log("Their answers: ", theirAnswers);
-        await otherUserRef.update({
-          answers: theirAnswers,
-        });
-        console.log("Document updated successfully!");
-      }
-      currMembers.add(otherUserID);
-      groupMembers = currMembers.size;
+      console.log("Added listener: ", dataChannel);
     }
-    console.log("Finished with all offers.");
-    
-    // iterate over answers
-    var answerDict = snapshot.data().answers;
-    for (let ID in answerDict) {
-      
-      // Don't accept an answer twice
-      if (currMembers.has(ID)) {
-        console.log(`Already connected to ${ID}, not handling answer`);
-        continue;
-      }
-      
-      console.log(`New answer from ${ID}: `, answerDict[ID]);
-      console.log(`userToConnection[${ID}]: `, userToConnection[ID].peerConnection);
-      await userToConnection[ID].peerConnection.setRemoteDescription(answerDict[ID]);
-      await addICECollection(
-        myUserID,
-        ID,
-        ID,
-        offererCandidateString,
-        answererCandidateString
-      );
-      currMembers.add(ID);
-      groupMembers = currMembers.size;
-    }
-    console.log("Finished with all answers.");
-  } else {
-    console.log(
-      `User with ID ${myUserID} got an offer update but snapshot did not exist.`
-    );
+  );
+
+  await userToConnection[otherUserID].peerConnection.setRemoteDescription(offer);
+  const answer = await userToConnection[otherUserID].peerConnection.createAnswer();
+  await userToConnection[otherUserID].peerConnection.setLocalDescription(answer);
+  console.log("Set remote and local descriptions.");
+
+  await addICECollection(
+    otherUserID,
+    myUserID,
+    otherUserID,
+    answererCandidateString,
+    offererCandidateString
+  );
+
+  const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
+  const otherUserSnapshot = await otherUserRef.get();
+  if (otherUserSnapshot.exists) {
+    const answerObj = {
+      id: myUserID,
+      type: answer.type,
+      sdp: answer.sdp,
+    };
+    console.log(`Adding answer ${answerObj} to ${otherUserID}`);
+    otherUserRef.collection("answers").doc(myUserID).set(answerObj);
   }
+  currMembers.add(otherUserID);
+  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+}
+
+async function handleNewAnswer(change) {
+  const db = firebase.firestore();
+  const answerObj = {
+    type: change.doc.data().type,
+    sdp: change.doc.data().sdp
+  };
+  const otherUserID = change.doc.data().id;
+
+  console.log(`New answer from ${otherUserID}: `, answerObj);
+  await userToConnection[otherUserID].peerConnection.setRemoteDescription(answerObj);
+  await addICECollection(myUserID, otherUserID, otherUserID, offererCandidateString, answererCandidateString);
+  currMembers.add(otherUserID);
+  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
 }
 
 async function addICECollection(
@@ -461,38 +472,92 @@ async function addICECollection(
 }
 
 async function handleMembershipChange(snapshot) {
-  console.log("Update to group membership");
   const memberList = snapshot.data().users;
   const role = snapshot.data().personDropped.role;
   const id = snapshot.data().personDropped.ID;
+  console.log("Update to group membership.");
+  console.log(`Person dropped: ${id}`);
 
-  if (memberList.length < groupMembers) {
-    // TODO: handle losing members
+  let myNewRole = ''
+
+  for (let i in memberList) {
+    let member = memberList[i];
+    if (member == myUserID) {
+      if (i == 0) {
+        myNewRole = DISTINGUISHED_PROPOSER;
+      } else if (i < Math.floor((memberList.length - 1) / 2) + 2) {
+        myNewRole = ACCEPTOR;
+      } else {
+        myNewRole = LEARNER;
+      }
+      break;
+    }
+  }
+
+  if (memberList.length < currMembers.size) {
     // Check if my role needs to be changed based on my index
+    
+    // Drop member from everything
+    if (id in userToConnection) {
+      if (userToConnection[id].dataChannel.readyState === "open") {
+        userToConnection[id].dataChannel.close();
+      }
+      userToConnection[id].peerConnection.close();
+      currMembers.delete(id);
+      delete userToConnection[id];
+    }
 
-    for (let i in memberList) {
-      let member = memberList[i];
-      if (member == myUserID) {
-        if (i == 0) {
-          myRole = DISTINGUISHED_PROPOSER;
-        } else if (i < Math.floor(memberList.length) + 2) {
-          myRole = ACCEPTOR;
-        } else {
-          myRole = LEARNER;
+    switch (myNewRole) {
+      case DISTINGUISHED_PROPOSER:
+
+        // If I previously was something else, sets relevant globals
+        switch (myRole) {
+          case DISTINGUISHED_PROPOSER:
+            
+            break;
+          case ACCEPTOR:
+            resetProposerGlobals(lastPrepareRankingVal)
+            break;
+          case LEARNER:
+            resetProposerGlobals(lastLearned)
+            break;
+          default:
+            console.log("Had no valid former role")
         }
 
         break;
-      }
+      case ACCEPTOR:
+        break;
+      case LEARNER:
+        break;
+      default:
+        console.log("Invalid role assignment, you're calculating roles incorrectly");
     }
+
+
+
+    // TODO: handle losing members
+    // TODO: handle gaining members
+    // TODO: if there's a role change, reset new role things
 
     // If new role is proposer, do things based on membership changes
 
     // If proposer left and you are not a proposer, send new proposer queued changes
 
     // Remove person from data structures
+    currMembers = Set(memberList);
+  } else if (memberList.length > currMembers.size) {
+    
   }
-  groupMembers = memberList.length;
-  // TODO: add logic to handle changes to group membership
+  consensusMajority = Math.floor((memberList.size - 1) / 2) + 1;
+}
+
+function resetProposerGlobals(lastRankingVal) {
+  ranking_val = lastRankingVal + 1;
+  roundInProgress = false;
+  messageQueue = [];
+  promises = 0;
+  acceptances = 0;
 }
 
 // Sends a message to the specified recipient class (DISTINGUISHED_PROPOSER|ACCEPTOR|LEARNER)
@@ -509,81 +574,165 @@ async function sendMessage(message, recipient) {
       console.log("Sending message to proposer");
       userToConnection[ID].dataChannel.send(JSON.stringify(message));
       
-    } else if (i > 0 && i < Math.floor(sessionMembersArray.length) + 2 && recipient == ACCEPTOR) {
+    } else if (i > 0 && i < Math.floor((sessionMembersArray.length - 1) / 2) + 2 && recipient == ACCEPTOR) {
       console.log("Sending message to acceptor");
       userToConnection[ID].dataChannel.send(JSON.stringify(message));
 
-    } else if (i > Math.floor(sessionMembersArray.length) + 1 && i < sessionMembersArray.length && recipient == LEARNER) {
+    } else if (i > Math.floor((sessionMembersArray.length - 1) / 2) + 1 && i < sessionMembersArray.length && recipient == LEARNER) {
       console.log("Sending message to learner");
       userToConnection[ID].dataChannel.send(JSON.stringify(message));
       
     }
       
-      
   }
 }
 
+// Called when a data channel receives a new message
 async function handleNewMessage(event) {
-  console.log(`new message of ${event.data}`);
-  // TODO: implement!!
-
   var message = JSON.parse(event.data);
+  console.log(`new message of ${message}`);
 
+  // Handle according to role
   switch (myRole) {
     case DISTINGUISHED_PROPOSER:
-      if (message.round_type == REQUEST) {
-        messageQueue.push(message);
+      switch (message.round_type) {
+        case REQUEST:
+          // Add requests for operations to the queue
+          messageQueue.push(message);
+
+          // Starts consensus round if there isn't already anything in the queue
+          if (messageQueue.length == 1) {
+            startRound();
+          }
+          break;
+        
+        case PROMISE:
+          if (message.ranking_val == ranking_val) {
+            promises++
+            if (promises == consensusMajority) {
+              message.round_type = ACCEPT;
+              sendMessage(message, ACCEPTOR);
+              promises = 0;
+            }
+          }
+          break;
+        
+        case CANT_PROMISE:
+          // Update ranking val and start round again with a higher ranking val
+          ranking_val = message.ranking_val + 1;
+
+          message.ranking_val = ranking_val;
+          message.message_type = PREPARE;
+          sendMessage(message, ACCEPTOR);
+          break;
+        
+        case ACCEPTED:
+          if (message.ranking_val == ranking_val) {
+            acceptances++;
+            if (acceptances == consensusMajority) {
+              acceptances = 0;
+
+              // Remove accepted message from queue
+              messagesQueue.shift();
+
+              // Increase ranking val to prepare for the next round
+              ranking_val++;
+
+              roundInProgress = false;
+
+              // Start consensus round with next message, if it exists
+              if (messagesQueue.length > 0) {
+                startRound();
+              }
+
+              
+            }
+          }
+          break;
+        
+        default:
+          console.log("Unrecognized round type for proposer:", message.round_type);
       }
       break;
-    case ACCEPTOR:
-      if (message.round_type == PREPARE) {
-        if (lastPrepareRankingVal > message.ranking_val) {
-          // TODO: send message back about how I agreed to vote on something higher
-        } else if (
-          lastAcceptedRankingVal === lastPrepareRankingVal &&
-          lastAcceptedRankingVal < message.ranking_val
-        ) {
-          // TODO: send message back agreeing to vote on this ballot
-        } else if (true) {
-        }
-        // lastAccepted < message.ranking_val
-        //       var agreedToVoteOn = 0;
-        // var lastAccepted = 0;
-        // var myRole = NO_ROLE;
     
-        // // For proposer
-        // var ranking_val = 1;
-      } else if (message.round == ACCEPT) {
-        switch (message.type) {
-          case PAUSE:
-            // TODO: implement
-            break;
-          case PLAY:
-            // TODO: implement
-            break;
-          case PAUSE:
-            break;
-          case ADD:
-            break;
-          case REMOVE:
-            break;
-          case SCRUB:
-            break;
-          case SKIP:
-            break;
-          default:
-            console.log("Unknown message type:", message.type);
-        }
+    case ACCEPTOR:
+      switch (message.round_type) {
+        case PREPARE:
+          if (lastPrepareRankingVal > message.ranking_val) {
+            message.round_type = CANT_PROMISE;
+            message.ranking_val = lastPrepareRankingVal;
+            sendMessage(message, DISTINGUISHED_PROPOSER);
+          } else if (
+            lastPrepareRankingVal < message.ranking_val
+          ) {
+            // This number is higher than the last last number I promised to vote on, so I'll promise to vote on this
+            lastPrepareRankingVal = message.ranking_val
+            message.round_type = PROMISE;
+            sendMessage(message, DISTINGUISHED_PROPOSER);
+            
+          }
+          break;
+        case ACCEPT:
+          // Check if this is the round I agreed to vote on
+          if (lastPrepareRankingVal == message.ranking_val) {
+            
+            message.round_type = ACCEPTED;
+
+            sendMessage(message, DISTINGUISHED_PROPOSER);
+            updateDataStructures(message);
+            lastAcceptedRankingVal = message.ranking_val
+
+            // If message type was valid, notify learners
+            if (message.message_type == PAUSE || message.message_type == PLAY || message.message_type == ADD || message.message_type == REMOVE || message.message_type == SCRUB || message.message_type == SKIP) {
+              message.round_type = LEARN;
+              sendMessage(message, LEARNER);
+            }
+          }
+          break;
+        default:
+          console.log("Unrecognized round type for acceptor:", message.round_type);
       }
       break;
     case LEARNER:
+      switch (message.round_type) {
+        case LEARN:
+          // Learner updates data structures if they haven't already
+          // TODO: Add mutex
+          if (message.ranking_val != lastLearned) {
+            updateDataStructures(message);
+            lastLearned = message.ranking_val;
+          }
+          break;
+        default:
+          console.log("Unrecognized round type for learner:", message.round_type);
+      }
       break;
     default:
-      console.log("Received a new message, but client has no role")
+      console.log("Received a new message, but current client has no role")
       break;
   }
 
   
+}
+
+// TODO: Modify local data structures based on the message's operation
+function updateDataStructures(message) {
+  switch (message.message_type) {
+    case PAUSE:
+      break;
+    case PLAY:
+      break;
+    case ADD:
+      break;
+    case REMOVE:
+      break;
+    case SCRUB:
+      break;
+    case SKIP:
+      break;
+    default:
+      console.log("Unknown message type:", message.type);
+  }
 }
 
 /*
@@ -600,12 +749,17 @@ async function handleNewMessage(event) {
     }
 */
 
-// This function is called by UI when a client wants to initiate an action
+// This function is called by UI when a client wants to initiate an action.å
+//  The client passes in the metadata for the action they want to initiate as per 
+//  the message schema above
 async function initiateMessage(message) {
 
   switch (myRole) {
     case DISTINGUISHED_PROPOSER:
       messageQueue.push(message);
+      if (messageQueue.length == 1) {
+        startRound();
+      }
       break;
     case ACCEPTOR:
       message.round_type = REQUEST;
@@ -622,8 +776,20 @@ async function initiateMessage(message) {
 
 } 
 
-async function removeMessageFromQueue() {
+// For proposer to handle consensus
+async function startRound() {
+  roundInProgress = true;
+  messageQueue[0].ranking_val = ranking_val;
+  messageQueue[0].round_type = PREPARE;
+  sendMessage(messagesQueue[0], ACCEPTOR);
   
 }
+
+// For proposer
+// var ranking_val = 1;
+// var roundInProgress = false;
+// var messageQueue = [];
+// var promises = 0
+// var acceptances = 0
 
 init();

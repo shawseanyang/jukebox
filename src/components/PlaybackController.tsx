@@ -73,7 +73,6 @@ const PlaybackController = (props: PlaybackControllerProps) => {
       {props.isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
     </LoadableButton>
 
-  // TODO: disable when there is no next song
   const SkipButton =
     <LoadableButton buttonProps={{shape: "round", disabled: !props.hasNextSong}} callback={props.skipSong} args={[]}>
       <DoubleRightOutlined />

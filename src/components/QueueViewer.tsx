@@ -1,29 +1,20 @@
-import { Avatar, List, Row, Skeleton } from "antd";
+import { Avatar, Button, List, Row, Skeleton, Spin } from "antd";
 import { Artist, Song } from "../types/Music";
 import Title from "antd/es/typography/Title";
 import CenteredTitle from "./CenteredTitle";
 import SongListItem from "./SongListItem";
 import { deleteSong } from "../types/Playback";
 import LoadableButton from "./LoadableButton";
+import { useState } from "react";
 
 export type QueueViewerProps = {
   queue: Song[];
   deleteSong: deleteSong;
 };
 
-const DeleteButton = (props: {index: number, deleteSong: deleteSong}) => {
-  return (
-    <LoadableButton
-      args={[props.index]}
-      callback={props.deleteSong}
-      buttonProps={{type: "link"}}
-    >
-      Delete
-    </LoadableButton>
-  )
-}
-
 const QueueViewer = (props: QueueViewerProps) => {
+
+  const [isLoading, setLoading] = useState<boolean>(false);
 
   function isQueueEmpty() {
     return props.queue.length === 0;
@@ -47,7 +38,17 @@ const QueueViewer = (props: QueueViewerProps) => {
       renderItem={(song, index) => (
         <List.Item
           actions={[
-            <DeleteButton index={index} deleteSong={props.deleteSong} />
+            <Button
+              onClick={
+                () => {
+                  setLoading(true);
+                  props.deleteSong(index, () => setLoading(false));
+                }
+              }
+              type={"link"}
+            >
+              Delete
+            </Button>
           ]}>
           <SongListItem song={song} />
         </List.Item>
@@ -58,7 +59,9 @@ const QueueViewer = (props: QueueViewerProps) => {
   return (
     <>
       <CenteredTitle>Up next</CenteredTitle>
-      {isQueueEmpty() ? SkeletonQueue : Queue}
+      <Spin spinning={isLoading}>
+        {isQueueEmpty() ? SkeletonQueue : Queue}
+      </Spin>
     </>
   )
 }

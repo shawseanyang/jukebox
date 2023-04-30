@@ -101,6 +101,7 @@ var connectionToUserMap = {};
 
 // dictionary from userID -> peerConnection
 var userToConnection = {};
+var currMembers = new Set();
 
 // Creates user entry in database
 async function addUser() {
@@ -196,19 +197,19 @@ async function joinSession() {
 
       registerPeerConnectionListeners(ID);
 
-      userToConnection[ID].addEventListener("datachannel", async (event) => {
-        console.log("New data channel: ", event);
-        const dataChannel = event.channel;
+      // userToConnection[ID].addEventListener("datachannel", async (event) => {
+      //   console.log("New data channel: ", event);
+      //   const dataChannel = event.channel;
 
-        dataChannel.onmessage = handleNewMessage;
+      //   dataChannel.onmessage = handleNewMessage;
 
-        console.log("Added listener: ", dataChannel);
+      //   console.log("Added listener: ", dataChannel);
 
-        dataChannels.push(dataChannel);
-        const identity = await userToConnection[ID].peerIdentity;
-        connectionToUserMap[identity] = [ID, dataChannel];
-        console.log("Connection to user map: ", connectionToUserMap);
-      });
+      //   dataChannels.push(dataChannel);
+      //   const identity = await userToConnection[ID].peerIdentity;
+      //   connectionToUserMap[identity] = [ID, dataChannel];
+      //   console.log("Connection to user map: ", connectionToUserMap);
+      // });
 
       const offer = await userToConnection[ID].createOffer();
       await userToConnection[ID].setLocalDescription(offer);
@@ -301,47 +302,54 @@ async function handleConnectionUpdate(snapshot) {
 
     // iterate over list of offers (usually of length 1)
     for (let otherUserID in offerDict) {
-      const offer = offerDict[otherUserID];
 
+      // Don't handle same offer twice
+      if (currMembers.has(otherUserID)) {
+        console.log(`Already connected to ${otherUserID}, not handling offer`);
+        continue;
+      }
+      
+      const offer = offerDict[otherUserID];
+      
       // Creates new peer connection for the offer
       const peerConnection = new RTCPeerConnection(configuration);
       userToConnection[otherUserID] = peerConnection;
-
+      
       // Registers listeners for connection being established
       registerPeerConnectionListeners(otherUserID);
       // Creating a data channel
-
+      
       userToConnection[otherUserID].addEventListener(
         "datachannel",
         async (event) => {
           console.log("New data channel: ", event);
           const dataChannel = event.channel;
-
+          
           dataChannel.onmessage = handleNewMessage;
-
+          
           console.log("Added listener: ", dataChannel);
-
+          
           dataChannels.push(dataChannel);
-          const identity = await userToConnection[otherUserID].peerIdentity;
-          connectionToUserMap[identity] = [otherUserID, dataChannel];
-          console.log("Connection to user map: ", connectionToUserMap);
+          // const identity = await userToConnection[otherUserID].peerIdentity;
+          // connectionToUserMap[identity] = [otherUserID, dataChannel];
+          // console.log("Connection to user map: ", connectionToUserMap);
         }
       );
-
+        
       console.log("Offer:", offer);
       await userToConnection[otherUserID].setRemoteDescription(offer);
       const answer = await userToConnection[otherUserID].createAnswer();
       await userToConnection[otherUserID].setLocalDescription(answer);
       console.log("Set remote and local descriptions.");
-
+      
       await addICECollection(
         otherUserID,
         myUserID,
         otherUserID,
         answererCandidateString,
-        offererCandidateString
+      offererCandidateString
       );
-
+      
       // Notify other user of our answer
       const otherUserRef = db.collection("userOffers").doc(`${otherUserID}`);
       const otherUserSnapshot = await otherUserRef.get();
@@ -358,12 +366,20 @@ async function handleConnectionUpdate(snapshot) {
         });
         console.log("Document updated successfully!");
       }
+      currMembers.add(otherUserID);
     }
     console.log("Finished with all offers.");
-
+    
     // iterate over answers
     var answerDict = snapshot.data().answers;
     for (let ID in answerDict) {
+      
+      // Don't accept an answer twice
+      if (currMembers.has(ID)) {
+        console.log(`Already connected to ${ID}, not handling answer`);
+        continue;
+      }
+      
       console.log(`New answer from ${ID}: `, answerDict[ID]);
       console.log(`userToConnection[${ID}]: `, userToConnection[ID]);
       await userToConnection[ID].setRemoteDescription(answerDict[ID]);
@@ -374,14 +390,15 @@ async function handleConnectionUpdate(snapshot) {
         offererCandidateString,
         answererCandidateString
       );
+      currMembers.add(ID);
     }
     console.log("Finished with all answers.");
 
     // after iterating over all offers set list to empty list?
-    await db.collection("userOffers").doc(`${myUserID}`).update({
-      offers: {},
-      answers: {},
-    });
+    // await db.collection("userOffers").doc(`${myUserID}`).update({
+    //   offers: {},
+    //   answers: {},
+    // });
   } else {
     console.log(
       `User with ID ${myUserID} got an offer update but snapshot did not exist.`
@@ -394,8 +411,7 @@ async function addICECollection(
   answererUserID,
   peerConnectionID,
   localName,
-  remoteName
-) {
+  remoteName) {
   const db = firebase.firestore();
   const entryRef = await db
     .collection("sessions")
@@ -404,10 +420,6 @@ async function addICECollection(
     .doc(`${offererUserID}${answererUserID}`);
 
   const candidatesCollection = entryRef.collection(localName);
-  console.log(
-    "Adding event listener for icecandidate to: ",
-    userToConnection[peerConnectionID]
-  );
   userToConnection[peerConnectionID].addEventListener(
     "icecandidate",
     (event) => {

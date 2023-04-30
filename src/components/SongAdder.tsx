@@ -1,4 +1,4 @@
-import { Divider, Empty, List, Skeleton } from "antd";
+import { Button, Divider, Empty, List, Skeleton } from "antd";
 import CenteredTitle from "./CenteredTitle";
 import DebouncingInput from "./DebouncingInput";
 import { useState } from "react";
@@ -6,11 +6,25 @@ import { Song } from "../types/Music";
 import SongListItem from "./SongListItem";
 import { SearchOutlined } from "@ant-design/icons";
 import SpotifyUtil from "../util/spotifyUtil";
+import { addSong } from "../types/Playback";
+import LoadableButton from "./LoadableButton";
 
 export type SongAdderProps = {
-  addSong: (song: Song) => void;
+  addSong: addSong;
   token: string;
 };
+
+const AddButton = (props: {song: Song, addSong: addSong}) => {
+  return (
+    <LoadableButton
+      args={[props.song]}
+      callback={props.addSong}
+      buttonProps={{type: "link"}}
+    >
+      Add
+    </LoadableButton>
+  )
+}
 
 const SongAdder = (props: SongAdderProps) => {
 
@@ -56,7 +70,7 @@ const SongAdder = (props: SongAdderProps) => {
       renderItem={(song) => (
           <List.Item
             actions={[
-              <a key="Enqueue" onClick={() => props.addSong(song)}>Add</a>
+              <AddButton song={song} addSong={props.addSong} />
             ]}>
             <SongListItem song={song} />
           </List.Item>

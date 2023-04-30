@@ -5,20 +5,25 @@ import { durationLeft, formatArtistsNames, msToString } from "../util/musicUtil"
 import { Scrubber } from "react-scrubber";
 import styled from 'styled-components'
 import 'react-scrubber/lib/scrubber.css'
-import { Button, Row, Space } from "antd";
+import { Button, Card, Col, Row, Space, Spin } from "antd";
 import { PauseOutlined, CaretRightOutlined, DoubleRightOutlined } from "@ant-design/icons";
+import LoadableButton from "./LoadableButton";
+import { useState } from "react";
+import { playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
 
 export type PlaybackControllerProps = {
   song: Song | null;
   isPlaying: boolean;
   songProgress: Milliseconds;
-  playSong: (song: Song) => void;
-  togglePlayback: () => void;
-  skipSong: () => void;
-  scrubTo: (milliseconds: Milliseconds) => void;
+  playSong: playSong;
+  togglePlayback: togglePlayback;
+  skipSong: skipSong;
+  scrubTo: scrubTo;
 };
 
 const PlaybackController = (props: PlaybackControllerProps) => {
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
   function hasSong() {
     return props.song !== null;
@@ -33,21 +38,22 @@ const PlaybackController = (props: PlaybackControllerProps) => {
   // Only scrub if there is a song to scrub
   function scrubTo (location: Milliseconds) {
     if (hasSong()) {
-      props.scrubTo(location)
+      setIsLoading(true);
+      props.scrubTo(location, () => setIsLoading(false));
     }
   }
   
   const SongScrubber =
-      <div className="scrubber-container" style={{height: "20px"}}>
-        <Scrubber
-            min={0}
-            max={hasSong() ? props.song!.duration : 100}
-            value={props.songProgress}
-            onScrubStart={scrubTo}
-            onScrubEnd={scrubTo}
-            onScrubChange={scrubTo}
-          />
-      </div>
+    <div className="scrubber-container" style={{height: "20px"}}>
+      <Scrubber
+          min={0}
+          max={hasSong() ? props.song!.duration : 100}
+          value={props.songProgress}
+          onScrubStart={scrubTo}
+          onScrubEnd={scrubTo}
+          onScrubChange={scrubTo}
+        />
+    </div>
 
   const SpaceBetween = styled.div`
     display: flex;
@@ -61,14 +67,15 @@ const PlaybackController = (props: PlaybackControllerProps) => {
     </SpaceBetween>
 
   const PausePlayButton =
-    <Button shape="round" onClick={props.togglePlayback}>
+  <LoadableButton buttonProps={{shape: "round"}} callback={props.togglePlayback} args={[]}>
       {props.isPlaying ? <PauseOutlined /> : <CaretRightOutlined />}
-    </Button>
+    </LoadableButton>
 
+  // TODO: disable when there is no next song
   const SkipButton =
-    <Button shape="round" onClick={props.skipSong}>
+    <LoadableButton buttonProps={{shape: "round"}} callback={props.skipSong} args={[]}>
       <DoubleRightOutlined />
-    </Button>
+    </LoadableButton>
 
   return (
     <Space size={"small"} direction="vertical" style={{width:"100%"}}>
@@ -80,6 +87,7 @@ const PlaybackController = (props: PlaybackControllerProps) => {
       <Space size={"small"}>
         {PausePlayButton}
         {SkipButton}
+        {isLoading ? <Spin /> : null}
       </Space>
     </Space>
   )

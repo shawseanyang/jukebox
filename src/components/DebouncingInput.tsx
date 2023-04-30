@@ -1,5 +1,6 @@
 import { Input } from 'antd';
 import React from 'react';
+import { debounce } from '../util/uiUtils';
 
 export type DebouncingInputProps = {
   addonBefore: React.ReactNode;
@@ -22,17 +23,5 @@ const DebouncingInput = (props: DebouncingInputProps) => {
     />
   );
 };
-
-function debounce<F extends (...args: any[]) => any>(func: F, delay: number) {
-  let timerId: NodeJS.Timeout;
-  return function (this: ThisParameterType<F>, ...args: Parameters<F>) {
-    if (timerId) {
-      clearTimeout(timerId);
-    }
-    timerId = setTimeout(() => {
-      func.apply(this, args);
-    }, delay);
-  };
-}
 
 export default DebouncingInput;

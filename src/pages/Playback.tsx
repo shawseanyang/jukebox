@@ -117,7 +117,8 @@ const Playback = () => {
     // TODO: implement consensus algorithm
     Consensus.addSong(song, (song: Song) => {
       // If consensus is reached, add song to queue
-      setQueue(queue => [song, ...queue]);
+      // Add song to the end of the queue
+      setQueue(queue => [...queue, song]);
       if (callback) {
         callback(song);
       }

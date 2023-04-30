@@ -12,7 +12,7 @@ const Layout = () => {
             <Col span={6} />
             <Col span={12}>
               <Space direction="vertical" size="large" style={{width: "100%"}}>
-                <Col />
+                <Col style={{minHeight: "15vh"}}></Col>
                 <Outlet />
                 <Col />
               </Space>

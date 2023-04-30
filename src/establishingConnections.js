@@ -46,7 +46,7 @@ const offererCandidateString = "offererCandidates";
 
 // Global state
 var username = "";
-var myUserID = 0;
+var myUserID = "";
 var sessionId = "";
 var groupMembers = 0; // Number of acceptors is floor((groupMembers - 1)/2) + 1
 var queue = []; // Array of songs
@@ -64,8 +64,12 @@ const ADD = 3;
 const REMOVE = 4;
 const SCRUB = 5;
 const SKIP = 6;
+
+// Round types
 const PREPARE = 7;
 const ACCEPT = 8;
+const REQUEST = 9;
+const LEARN = 10;
 
 // Consensus globals
 var lastPrepareRankingVal = 0;
@@ -74,6 +78,8 @@ var myRole = NO_ROLE;
 
 // For proposer
 var ranking_val = 1;
+var roundInProgress = false;
+var messageQueue = [];
 
 // Default configuration - Change these if you have a different STUN or TURN server.
 const configuration = {
@@ -94,10 +100,6 @@ function init() {
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector("#room-dialog"));
 }
 
-var dataChannels = [];
-
-// dictionary from peerConnection.peerIdentity -> (userConnectedToId, dataChannel)
-var connectionToUserMap = {};
 
 // dictionary from userID -> peerConnection
 var userToConnection = {};
@@ -122,7 +124,6 @@ async function addUser() {
 //    to join the session.
 // Also adds an entry to the userOffers table which will be
 //    used as a way to send and receive offers
-
 async function createSession() {
   // Set role as distinguished proposer if creating session
   myRole = DISTINGUISHED_PROPOSER;
@@ -183,36 +184,34 @@ async function joinSession() {
     for (let ID of sessionSnapshot.data().users) {
       console.log(`Found user ${ID} in session!`);
       const peerConnection = new RTCPeerConnection(configuration);
-      userToConnection[ID] = peerConnection;
+      userToConnection[ID] = {};
+      userToConnection[ID].peerConnection = peerConnection;
 
       console.log(`Creating data channel with ${ID}.`);
-      const dataChannel = userToConnection[ID].createDataChannel(
+      const dataChannel = userToConnection[ID].peerConnection.createDataChannel(
         `${myUserID}-${ID} data channel`
       );
+      userToConnection[ID].dataChannel = dataChannel;
 
-      dataChannel.onmessage = handleNewMessage;
+      // Add event handler for error, open, close and message
+      userToConnection[ID].dataChannel.onerror = () => {
+        console.log(`Data channel to ${ID} had error.`);
+        userToConnection[ID].dataChannel.close();
+      }
+      userToConnection[ID].dataChannel.onopen = () => {
+        console.log(`Data channel to ${ID} is open`)
+      };
+      userToConnection[ID].dataChannel.onclose = () => {
+        console.log(`Data channel to ${ID} is closed`)
+      };
+      userToConnection[ID].dataChannel.onmessage = handleNewMessage;
 
       console.log("Added listener: ", dataChannel);
-      dataChannels.push(dataChannel);
 
       registerPeerConnectionListeners(ID);
 
-      // userToConnection[ID].addEventListener("datachannel", async (event) => {
-      //   console.log("New data channel: ", event);
-      //   const dataChannel = event.channel;
-
-      //   dataChannel.onmessage = handleNewMessage;
-
-      //   console.log("Added listener: ", dataChannel);
-
-      //   dataChannels.push(dataChannel);
-      //   const identity = await userToConnection[ID].peerIdentity;
-      //   connectionToUserMap[identity] = [ID, dataChannel];
-      //   console.log("Connection to user map: ", connectionToUserMap);
-      // });
-
-      const offer = await userToConnection[ID].createOffer();
-      await userToConnection[ID].setLocalDescription(offer);
+      const offer = await userToConnection[ID].peerConnection.createOffer();
+      await userToConnection[ID].peerConnection.setLocalDescription(offer);
       console.log("Created offer:", offer);
 
       const userRef = db.collection("userOffers").doc(`${ID}`);
@@ -239,57 +238,71 @@ async function joinSession() {
   }
   const userList = sessionSnapshot.data().users;
   userList.push(myUserID);
-  sessionRef
-    .update({
-      users: userList,
-    })
-    .then(() => {
-      console.log("Membership updated!");
-    });
+  sessionRef.update({
+    users: userList,
+  }).then(() => {
+    console.log("Membership updated!");
+  });
   sessionRef.onSnapshot(handleMembershipChange);
 }
 
-// Pass in peer connection so it doesn't have to be global :)
+// Pass in the ID of a peer connection
 function registerPeerConnectionListeners(ID) {
-  userToConnection[ID].addEventListener("icegatheringstatechange", () => {
+  userToConnection[ID].peerConnection.addEventListener("icegatheringstatechange", () => {
     console.log(
-      `ICE gathering state changed: ${userToConnection[ID].iceGatheringState}`
+      `ICE gathering state changed: ${userToConnection[ID].peerConnection.iceGatheringState}`
     );
   });
 
-  userToConnection[ID].addEventListener("connectionstatechange", () => {
-    console.log(
-      `Connection state change: ${userToConnection[ID].connectionState}`
-    );
+  userToConnection[ID].peerConnection.addEventListener("connectionstatechange", async () => {
+    console.log(`Connection state change: ${userToConnection[ID].peerConnection.connectionState}`);
+    const db = firebase.firestore();
+    switch(userToConnection[ID].peerConnection.connectionState) {
+      case "connecting":
+        console.log(`Connecting to ${ID}`);
+        break;
+      case "connected":
+        console.log(`Connected to ${ID}`)
+        break;
+      case "failed":
+        console.log(`One or more of ICE transports on connection with ${ID} has failed`);
+      case "disconnected":
+        // TODO: Add "disconnected" case so that we remove entry, close datachannels and peerConnections, etc.
+        console.log(`Disconnected from ${ID}`);
+        userToConnection[ID].dataChannel.close();
+        userToConnection[ID].peerConnection.close();
+        currMembers.delete(ID);
+        const sessionMembers = await db.collection("sessions").doc(`${sessionId}`).data().users;
+        const idxToRemove = sessionMembers.indexOf(ID);
+        if (idxToRemove > -1) {
+          sessionMembers.splice(idxToRemove, 1);
+        }
+        await db.collection("sessions").doc(`${sessionId}`).update({
+          users: sessionMembers
+        });
+        console.log(`Removed user ${ID}`);
+        break;
+      case "closed":
+        console.log(`Closed peer connection to ${ID}`);
+        break;
+      default:
+        break;
+    }
 
     // TODO, consensus round to see if connection is down for everyone
   });
 
-  userToConnection[ID].addEventListener("signalingstatechange", () => {
+  userToConnection[ID].peerConnection.addEventListener("signalingstatechange", () => {
     console.log(
-      `Signaling state change: ${userToConnection[ID].signalingState}`
+      `Signaling state change: ${userToConnection[ID].peerConnection.signalingState}`
     );
   });
 
-  userToConnection[ID].addEventListener("iceconnectionstatechange ", () => {
+  userToConnection[ID].peerConnection.addEventListener("iceconnectionstatechange ", () => {
     console.log(
-      `ICE connection state change: ${userToConnection[ID].iceConnectionState}`
+      `ICE connection state change: ${userToConnection[ID].peerConnection.iceConnectionState}`
     );
   });
-
-  // userToConnection[ID].addEventListener("datachannel", (event) => {
-  //   console.log(`Data channel made for user ${myUserID}`);
-  // });
-}
-
-async function sendMessage() {
-  let message = document.querySelector("#message-test-id").value;
-  console.log("about to send message ", message);
-
-  for (let dataChannel of dataChannels) {
-    console.log("Sending message over ", dataChannel.label);
-    dataChannel.send(JSON.stringify(message));
-  }
 }
 
 // Runs when a new person joins a session and attempts to form a connection
@@ -313,33 +326,41 @@ async function handleConnectionUpdate(snapshot) {
       
       // Creates new peer connection for the offer
       const peerConnection = new RTCPeerConnection(configuration);
-      userToConnection[otherUserID] = peerConnection;
+      userToConnection[otherUserID] = {};
+      userToConnection[otherUserID].peerConnection = peerConnection;
       
       // Registers listeners for connection being established
       registerPeerConnectionListeners(otherUserID);
       // Creating a data channel
       
-      userToConnection[otherUserID].addEventListener(
+      userToConnection[otherUserID].peerConnection.addEventListener(
         "datachannel",
         async (event) => {
           console.log("New data channel: ", event);
           const dataChannel = event.channel;
-          
-          dataChannel.onmessage = handleNewMessage;
+          userToConnection[otherUserID].dataChannel = dataChannel;
+
+          // Add event handler for error, close, open and message
+          userToConnection[otherUserID].dataChannel.onerror = () => {
+            console.log(`Data channel to ${otherUserID} had error.`);
+            userToConnection[otherUserID].dataChannel.close();
+          }
+          userToConnection[otherUserID].dataChannel.onopen = () => {
+            console.log(`Data channel to ${otherUserID} is open`)
+          };
+          userToConnection[otherUserID].dataChannel.onclose = () => {
+            console.log(`Data channel to ${otherUserID} is closed`)
+          };
+          userToConnection[otherUserID].dataChannel.onmessage = handleNewMessage;
           
           console.log("Added listener: ", dataChannel);
-          
-          dataChannels.push(dataChannel);
-          // const identity = await userToConnection[otherUserID].peerIdentity;
-          // connectionToUserMap[identity] = [otherUserID, dataChannel];
-          // console.log("Connection to user map: ", connectionToUserMap);
         }
       );
         
       console.log("Offer:", offer);
-      await userToConnection[otherUserID].setRemoteDescription(offer);
-      const answer = await userToConnection[otherUserID].createAnswer();
-      await userToConnection[otherUserID].setLocalDescription(answer);
+      await userToConnection[otherUserID].peerConnection.setRemoteDescription(offer);
+      const answer = await userToConnection[otherUserID].peerConnection.createAnswer();
+      await userToConnection[otherUserID].peerConnection.setLocalDescription(answer);
       console.log("Set remote and local descriptions.");
       
       await addICECollection(
@@ -367,6 +388,7 @@ async function handleConnectionUpdate(snapshot) {
         console.log("Document updated successfully!");
       }
       currMembers.add(otherUserID);
+      groupMembers = currMembers.size;
     }
     console.log("Finished with all offers.");
     
@@ -381,8 +403,8 @@ async function handleConnectionUpdate(snapshot) {
       }
       
       console.log(`New answer from ${ID}: `, answerDict[ID]);
-      console.log(`userToConnection[${ID}]: `, userToConnection[ID]);
-      await userToConnection[ID].setRemoteDescription(answerDict[ID]);
+      console.log(`userToConnection[${ID}]: `, userToConnection[ID].peerConnection);
+      await userToConnection[ID].peerConnection.setRemoteDescription(answerDict[ID]);
       await addICECollection(
         myUserID,
         ID,
@@ -391,14 +413,9 @@ async function handleConnectionUpdate(snapshot) {
         answererCandidateString
       );
       currMembers.add(ID);
+      groupMembers = currMembers.size;
     }
     console.log("Finished with all answers.");
-
-    // after iterating over all offers set list to empty list?
-    // await db.collection("userOffers").doc(`${myUserID}`).update({
-    //   offers: {},
-    //   answers: {},
-    // });
   } else {
     console.log(
       `User with ID ${myUserID} got an offer update but snapshot did not exist.`
@@ -420,7 +437,7 @@ async function addICECollection(
     .doc(`${offererUserID}${answererUserID}`);
 
   const candidatesCollection = entryRef.collection(localName);
-  userToConnection[peerConnectionID].addEventListener(
+  userToConnection[peerConnectionID].peerConnection.addEventListener(
     "icecandidate",
     (event) => {
       if (!event.candidate) {
@@ -437,7 +454,7 @@ async function addICECollection(
       if (change.type === "added") {
         let data = change.doc.data();
         console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
-        await userToConnection[peerConnectionID].addIceCandidate(data);
+        await userToConnection[peerConnectionID].peerConnection.addIceCandidate(data);
       }
     });
   });
@@ -446,6 +463,9 @@ async function addICECollection(
 async function handleMembershipChange(snapshot) {
   console.log("Update to group membership");
   const memberList = snapshot.data().users;
+  const role = snapshot.data().personDropped.role;
+  const id = snapshot.data().personDropped.ID;
+
   if (memberList.length < groupMembers) {
     // TODO: handle losing members
     // Check if my role needs to be changed based on my index
@@ -475,62 +495,135 @@ async function handleMembershipChange(snapshot) {
   // TODO: add logic to handle changes to group membership
 }
 
+// Sends a message to the specified recipient class (DISTINGUISHED_PROPOSER|ACCEPTOR|LEARNER)
+async function sendMessage(message, recipient) {
+  // let message = document.querySelector("#message-test-id").value;
+  console.log("about to send message ", message);
+
+  const sessionMembersArray = Array.from(currMembers);
+
+  for (let i = 0; i < sessionMembersArray.length; i++) {
+    let ID = sessionMembersArray[i];
+
+    if (i = 0 && recipient == DISTINGUISHED_PROPOSER) {
+      console.log("Sending message to proposer");
+      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+      
+    } else if (i > 0 && i < Math.floor(sessionMembersArray.length) + 2 && recipient == ACCEPTOR) {
+      console.log("Sending message to acceptor");
+      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+
+    } else if (i > Math.floor(sessionMembersArray.length) + 1 && i < sessionMembersArray.length && recipient == LEARNER) {
+      console.log("Sending message to learner");
+      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+      
+    }
+      
+      
+  }
+}
+
 async function handleNewMessage(event) {
   console.log(`new message of ${event.data}`);
   // TODO: implement!!
 
   var message = JSON.parse(event.data);
 
-  // switch (myRole) {
-  //   case DISTINGUISHED_PROPOSER:
-  //     break;
-  //   case ACCEPTOR:
-  //     break;
-  //   case LEARNER:
-  //     break;
-  //   default:
-  //     console.log("no role")
-  // }
-
-  if (message.round == PREPARE) {
-    if (lastPrepareRankingVal > message.ranking_val) {
-      // TODO: send message back about how I agreed to vote on something higher
-    } else if (
-      lastAcceptedRankingVal === lastPrepareRankingVal &&
-      lastAcceptedRankingVal < message.ranking_val
-    ) {
-      // TODO: send message back agreeing to vote on this ballot
-    } else if (true) {
-    }
-    // lastAccepted < message.ranking_val
-    //       var agreedToVoteOn = 0;
-    // var lastAccepted = 0;
-    // var myRole = NO_ROLE;
-
-    // // For proposer
-    // var ranking_val = 1;
-  } else if (message.round == ACCEPT) {
-    switch (message.type) {
-      case PAUSE:
-        // TODO: implement
-        break;
-      case PLAY:
-        // TODO: implement
-        break;
-      case PAUSE:
-        break;
-      case ADD:
-        break;
-      case REMOVE:
-        break;
-      case SCRUB:
-        break;
-      case SKIP:
-        break;
-      default:
-        console.log("Unknown message type:", message.type);
-    }
+  switch (myRole) {
+    case DISTINGUISHED_PROPOSER:
+      if (message.round_type == REQUEST) {
+        messageQueue.push(message);
+      }
+      break;
+    case ACCEPTOR:
+      if (message.round_type == PREPARE) {
+        if (lastPrepareRankingVal > message.ranking_val) {
+          // TODO: send message back about how I agreed to vote on something higher
+        } else if (
+          lastAcceptedRankingVal === lastPrepareRankingVal &&
+          lastAcceptedRankingVal < message.ranking_val
+        ) {
+          // TODO: send message back agreeing to vote on this ballot
+        } else if (true) {
+        }
+        // lastAccepted < message.ranking_val
+        //       var agreedToVoteOn = 0;
+        // var lastAccepted = 0;
+        // var myRole = NO_ROLE;
+    
+        // // For proposer
+        // var ranking_val = 1;
+      } else if (message.round == ACCEPT) {
+        switch (message.type) {
+          case PAUSE:
+            // TODO: implement
+            break;
+          case PLAY:
+            // TODO: implement
+            break;
+          case PAUSE:
+            break;
+          case ADD:
+            break;
+          case REMOVE:
+            break;
+          case SCRUB:
+            break;
+          case SKIP:
+            break;
+          default:
+            console.log("Unknown message type:", message.type);
+        }
+      }
+      break;
+    case LEARNER:
+      break;
+    default:
+      console.log("Received a new message, but client has no role")
+      break;
   }
+
+  
+}
+
+/*
+  Message Schema: 
+
+    {
+        message_type: int
+        round_type: optional int
+        ranking_val: optional int
+        timestamp: optional timestamp
+        song: optional string
+        must_accept: optional bool
+        index: optional int
+    }
+*/
+
+// This function is called by UI when a client wants to initiate an action
+async function initiateMessage(message) {
+
+  switch (myRole) {
+    case DISTINGUISHED_PROPOSER:
+      messageQueue.push(message);
+      break;
+    case ACCEPTOR:
+      message.round_type = REQUEST;
+      sendMessage(message, DISTINGUISHED_PROPOSER);
+      break;
+    case LEARNER:
+      message.round_type = REQUEST;
+      sendMessage(message, DISTINGUISHED_PROPOSER);
+      break;
+    default:
+      console.log("Attempted to initiate message, but the client has no role");
+      break;
+  }
+
+} 
+
+async function removeMessageFromQueue() {
+  
 }
 
 init();

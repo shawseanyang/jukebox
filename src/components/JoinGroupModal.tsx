@@ -24,8 +24,7 @@ const JoinGroupModal = (props: JoinGroupModalProps) => {
     if (isValidGroupName(group)) {
       setIsInputValid(true);
       setIsLoading(true);
-      // dummy timeout
-      // TODO: instead of a timeout, we should query the backend to join the group
+      // TODO: await joinSession() ; remove the setTimeout
       setTimeout(() => {
         // after successfully joining or creating a group with the server, do the following:
         setIsLoading(false);

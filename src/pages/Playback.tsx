@@ -127,13 +127,13 @@ const Playback = () => {
     });
   }
 
-  // Attempts to reach consensus on scrubbing to a location in the song. If successful, scrubs to the location and calls the callback.
+  // Attempts to reach consensus on scrubbing to a location in the song. Immediately scrubs to preserve UI fluidity. If successful, calls the callback.
   const tryScrubTo: scrubTo = (location, callback) => {
+    setSongProgress(location);
+    player?.seek(location);
     // TODO: implement consensus algorithm
     Consensus.scrubTo(location, (location: Milliseconds) => {
       // If consensus is reached, scrub to location
-      setSongProgress(location)
-      player?.seek(location);
       if (callback) {
         callback(location);
       }

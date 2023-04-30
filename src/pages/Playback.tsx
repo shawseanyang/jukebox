@@ -6,7 +6,6 @@ import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
 import QueueViewer from "../components/QueueViewer";
 import { Milliseconds, Queue, Song } from "../types/Music";
-import { FAKE_QUEUE, FAKE_SONG } from "../placeholders/fake_music";
 import WebPlayer from "../components/WebPlayer";
 import { spotify_client_id, spotify_client_secret, spotify_redirect_uri } from "..";
 import { Buffer } from "buffer";
@@ -17,7 +16,7 @@ import { addSong, deleteSong, playSong, scrubTo, skipSong, togglePlayback } from
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
   const [queue, setQueue] = useState<Queue>([]);
-  const [currentSong, setCurrentSong] = useState<Song | null>(FAKE_SONG);
+  const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [songProgress, setSongProgress] = useState<Milliseconds>(0);
   const [token, setToken] = useState("");
@@ -73,6 +72,10 @@ const Playback = () => {
 
   function hasJoinedGroup() {
     return group !== null;
+  }
+
+  function getAlbumCover(song: Song | null) {
+    return song !== null ? song.album.imageUrl : null;
   }
 
   // Attempts to reach consensus on adding a song to the queue. If successful, adds song to queue and calls the callback.
@@ -174,7 +177,7 @@ const Playback = () => {
       <Space direction="vertical" size="large" style={{width: "100%"}}>
         <Row>
           <Col span={10}>
-            <AlbumCover imageUrl={currentSong!.album.imageUrl}/>
+            <AlbumCover imageUrl={getAlbumCover(currentSong)}/>
           </Col>
           <Col span={4} />
           <Col span={10} style={{alignSelf: "end"}}>

@@ -10,6 +10,7 @@ import { PauseOutlined, CaretRightOutlined, DoubleRightOutlined } from "@ant-des
 import LoadableButton from "./LoadableButton";
 import { useState } from "react";
 import { playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
+import Ellipsis from "./Ellipsis";
 
 export type PlaybackControllerProps = {
   song: Song | null;
@@ -32,8 +33,8 @@ const PlaybackController = (props: PlaybackControllerProps) => {
 
   const SongInfo =
     <>
-      <Title>{hasSong() ? props.song!.name : "No song playing"}</Title>
-      <Text>{hasSong() ? formatArtistsNames(props.song!.artists) : "No artist"}</Text>
+      <Ellipsis.Title text={hasSong() ? props.song!.name : "No song playing"}/>
+      <Ellipsis.Text text={hasSong() ? formatArtistsNames(props.song!.artists) : "No artist"} />
     </>
 
   // Only scrub if there is a song to scrub

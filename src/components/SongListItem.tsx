@@ -1,6 +1,7 @@
 import { Avatar, List } from "antd";
 import { Artist, Song } from "../types/Music";
 import { formatArtistsNames } from "../util/musicUtil";
+import Ellipsis from "./Ellipsis";
 
 // Renders a song into a list item
 export type SongListItemProps = {
@@ -12,7 +13,7 @@ const SongListItem = (props: SongListItemProps) =>
   avatar={
     <Avatar shape="square" size="large" src={props.song.album.imageUrl} />
   }
-  title={props.song.name}
-  description={formatArtistsNames(props.song.artists)}
+  title={<Ellipsis.Title text={props.song.name} level={3} />}
+  description={<Ellipsis.Text text={formatArtistsNames(props.song.artists)} />}
 />
 export default SongListItem;

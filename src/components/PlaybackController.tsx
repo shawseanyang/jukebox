@@ -13,6 +13,7 @@ import { playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
 
 export type PlaybackControllerProps = {
   song: Song | null;
+  hasNextSong: boolean;
   isPlaying: boolean;
   songProgress: Milliseconds;
   playSong: playSong;
@@ -73,7 +74,7 @@ const PlaybackController = (props: PlaybackControllerProps) => {
 
   // TODO: disable when there is no next song
   const SkipButton =
-    <LoadableButton buttonProps={{shape: "round"}} callback={props.skipSong} args={[]}>
+    <LoadableButton buttonProps={{shape: "round", disabled: !props.hasNextSong}} callback={props.skipSong} args={[]}>
       <DoubleRightOutlined />
     </LoadableButton>
 

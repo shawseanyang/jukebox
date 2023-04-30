@@ -222,6 +222,7 @@ const Playback = () => {
           <Col span={10} style={{alignSelf: "end"}}>
             <PlaybackController
               song={currentSong}
+              hasNextSong={queue.length > 0}
               isPlaying={isPlaying}
               songProgress={songProgress}
               playSong={tryPlaySong}

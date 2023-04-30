@@ -1,7 +1,7 @@
 import { Button, Divider, Empty, List, Skeleton } from "antd";
 import CenteredTitle from "./CenteredTitle";
 import DebouncingInput from "./DebouncingInput";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Song } from "../types/Music";
 import SongListItem from "./SongListItem";
 import { SearchOutlined } from "@ant-design/icons";
@@ -28,13 +28,23 @@ const AddButton = (props: {song: Song, addSong: addSong}) => {
 
 const SongAdder = (props: SongAdderProps) => {
 
-  const [results, setResults] = useState<Song[]>([]);
+  const EMPTY_SEARCH = "";
+  const EMPTY_RESULTS: Song[] = [];
 
-  const [currentSearch, setCurrentSearch] = useState<string>("");
+  const [results, setResults] = useState<Song[]>(EMPTY_RESULTS);
+
+  const [currentSearch, setCurrentSearch] = useState<string>(EMPTY_SEARCH);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const [hasBeenTouched, setHasBeenTouched] = useState<boolean>(false);
+
+  // When the search is cleared, clear the results
+  useEffect(() => {
+    if (currentSearch === EMPTY_SEARCH) {
+      setResults(EMPTY_RESULTS);
+    }
+  }, [currentSearch])
 
   function onInputChange(query: string) {
     if (!hasBeenTouched) {

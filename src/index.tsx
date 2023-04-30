@@ -18,8 +18,6 @@ root.render(
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();
 
-// TODO: move to dotenv and have two env files, one for dev one for prod.
-
 export var spotify_client_id = process.env.REACT_APP_SPOTIFY_CLIENT_ID || ''
 export var spotify_client_secret = process.env.REACT_APP_SPOTIFY_CLIENT_SECRET || ''
 export var spotify_redirect_uri = process.env.REACT_APP_REDIRECT_URI || ''

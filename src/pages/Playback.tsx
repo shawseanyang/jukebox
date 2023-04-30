@@ -33,6 +33,8 @@ export const PROGRESS_STEPS = [
   },
 ]
 
+const SKIP_SONG_INTERVAL = 1000;
+
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
   const [queue, setQueue] = useState<Queue>([]);
@@ -46,6 +48,7 @@ const Playback = () => {
   const [modalState, setModalState] = useState<ModalStates>(ModalStates.CONNECT_TO_SERVICE);
   const [messageApi, contextHolder] = message.useMessage();
 
+  // Updates the song progress every 500ms
   useEffect(() => {
     const interval = setInterval(() => {
       setSongProgressUpdateTrigger(!songProgressUpdateTrigger);
@@ -58,6 +61,16 @@ const Playback = () => {
     }, 500);
     return () => clearInterval(interval);
   }, [songProgressUpdateTrigger]);
+
+  // Plays next song in queue when the current song ends
+  useEffect(() => {
+    if (queue.length > 0 && currentSong && currentSong.duration - songProgress < SKIP_SONG_INTERVAL) {
+      setCurrentSong(queue[0]);
+      SpotifyUtil.playSong(queue[0].uri, token);
+      setQueue(queue => queue.slice(1));
+      setSongProgress(0);
+    }
+  }, [songProgress]);
 
   useEffect(() => {
     var args = window.location.href;
@@ -230,6 +243,7 @@ const Playback = () => {
               togglePlayback={tryTogglePlayback}
               skipSong={trySkipSong}
               scrubTo={tryScrubTo}
+              skipSongInterval={SKIP_SONG_INTERVAL}
             />
           </Col>
         </Row>

@@ -21,6 +21,7 @@ export type PlaybackControllerProps = {
   togglePlayback: togglePlayback;
   skipSong: skipSong;
   scrubTo: scrubTo;
+  skipSongInterval: Milliseconds;
 };
 
 const PlaybackController = (props: PlaybackControllerProps) => {
@@ -49,7 +50,7 @@ const PlaybackController = (props: PlaybackControllerProps) => {
     <div className="scrubber-container" style={{height: "20px"}}>
       <Scrubber
           min={0}
-          max={hasSong() ? props.song!.duration : 100}
+          max={hasSong() ? props.song!.duration - props.skipSongInterval * 2 : 100}
           value={props.songProgress}
           onScrubStart={scrubTo}
           onScrubEnd={scrubTo}

@@ -117,7 +117,7 @@ const Playback = () => {
     // TODO: implement consensus algorithm
     Consensus.addSong(song, (song: Song) => {
       // If consensus is reached, add song to queue
-      setQueue([song, ...queue])
+      setQueue(queue => [song, ...queue]);
       if (callback) {
         callback(song);
       }
@@ -129,7 +129,7 @@ const Playback = () => {
     // TODO: implement consensus algorithm
     Consensus.deleteSong(index, (index: number) => {
       // If consensus is reached, delete song from queue
-      setQueue(queue.filter((_, i) => i !== index));
+      setQueue(queue => queue.filter((_, i) => i !== index));
       if (callback) {
         callback(index);
       }

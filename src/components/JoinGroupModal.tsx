@@ -1,4 +1,4 @@
-import { Modal, Input } from "antd";
+import { Modal, Input, Steps, Space } from "antd";
 import { UsergroupAddOutlined } from '@ant-design/icons';
 import { useState } from "react";
 
@@ -7,6 +7,7 @@ const GroupInput = Input.Search
 interface JoinGroupModalProps {
   isOpen: boolean;
   joinGroup: (group: string) => void;
+  progressSteps: {title: string}[];
 }
 
 const JoinGroupModal = (props: JoinGroupModalProps) => {
@@ -43,15 +44,22 @@ const JoinGroupModal = (props: JoinGroupModalProps) => {
         footer={null}
       >
         <p>Enter the name of an existing group to join it. Enter the name of a new group to create it.</p>
-        <GroupInput
-          prefix={<UsergroupAddOutlined />}
-          placeholder="wheres_waldo"
-          enterButton="Join/Create"
-          size="large"
-          loading={isLoading}
-          onSearch={joinGroup}
-          status={isInputValid ? "" : "error"}
-        />
+        <Space direction="vertical" size="large" style={{width: "100%"}}>
+          <GroupInput
+            prefix={<UsergroupAddOutlined />}
+            placeholder="wheres_waldo"
+            enterButton="Join/Create"
+            size="large"
+            loading={isLoading}
+            onSearch={joinGroup}
+            status={isInputValid ? "" : "error"}
+          />
+          <Steps
+            size="small"
+            current={1}
+            items={props.progressSteps}
+          />
+        </Space>
       </Modal>
   )
 }

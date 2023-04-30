@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import JoinGroupModal from "../components/JoinGroupModal";
-import { Col, Row, Space } from "antd";
+import { Col, Row, Space, message } from "antd";
 import SongAdder from "../components/SongAdder";
 import AlbumCover from "../components/AlbumCover";
 import PlaybackController from "../components/PlaybackController";
@@ -12,6 +12,26 @@ import { Buffer } from "buffer";
 import SpotifyUtil from "../util/spotifyUtil";
 import Consensus from "../placeholders/fake_consensus_algo";
 import { addSong, deleteSong, playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
+import ConnectToServiceModal from "../components/ConnectToServiceModal";
+
+enum ModalStates {
+  // The user has not connected to a service yet, for example, Spotify
+  CONNECT_TO_SERVICE,
+  // The user has connected to a service, but has not joined a group yet
+  JOIN_GROUP,
+  // The user has joined a group
+  IN_GROUP
+}
+
+// The steps to show in the progress bar of the modals
+export const PROGRESS_STEPS = [
+  {
+    title: 'Transfer Playback',
+  },
+  {
+    title: 'Join Group',
+  },
+]
 
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
@@ -23,6 +43,8 @@ const Playback = () => {
   const [player, setPlayer] = useState<Spotify.Player | null>(null);
   const [isPlayerActive, setPlayerActive] = useState(false);
   const [songProgressUpdateTrigger, setSongProgressUpdateTrigger] = useState(false);
+  const [modalState, setModalState] = useState<ModalStates>(ModalStates.CONNECT_TO_SERVICE);
+  const [messageApi, contextHolder] = message.useMessage();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -70,9 +92,21 @@ const Playback = () => {
     });
   }, []);
 
-  function hasJoinedGroup() {
-    return group !== null;
-  }
+  // When the player is active (ie. connected to Spotify), show them a success notification and advance to the next modal state
+  useEffect(() => {
+    if (isPlayerActive) {
+      messageApi.success("Successfully connected to music service!")
+      setModalState(ModalStates.JOIN_GROUP);
+    }
+  }, [isPlayerActive]);
+
+  // When the user has joined a group, show them a success notification and advance to the next modal state
+  useEffect(() => {
+    if (group !== null) {
+      messageApi.success(`Successfully joined group '${group}'!`)
+      setModalState(ModalStates.IN_GROUP);
+    }
+  }, [group]);
 
   function getAlbumCover(song: Song | null) {
     return song !== null ? song.album.imageUrl : null;
@@ -170,9 +204,14 @@ const Playback = () => {
         setPlayer={setPlayer}
         setActive={setPlayerActive}
       />
+      <ConnectToServiceModal
+        isOpen={modalState === ModalStates.CONNECT_TO_SERVICE}
+        progressSteps={PROGRESS_STEPS}
+      />
       <JoinGroupModal
-        isOpen={!hasJoinedGroup()}
+        isOpen={modalState === ModalStates.JOIN_GROUP}
         joinGroup={setGroup}
+        progressSteps={PROGRESS_STEPS}
       />
       <Space direction="vertical" size="large" style={{width: "100%"}}>
         <Row>

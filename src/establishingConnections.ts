@@ -1,6 +1,7 @@
 import firebase from "firebase/compat/app";
 import { UrlWithStringQuery } from "url";
 import { Song } from "./types/Music";
+import "firebase/compat/firestore";
 
 /*
 
@@ -41,13 +42,35 @@ import { Song } from "./types/Music";
 
 */
 
+// Import the functions you need from the SDKs you need
+// import { initializeApp } from "firebase/app";
+// import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: process.env.FIREBASE_API_KEY || '',
+  authDomain: "jukebox-eecb0.firebaseapp.com",
+  databaseURL: "https://jukebox-eecb0-default-rtdb.firebaseio.com",
+  projectId: "jukebox-eecb0",
+  storageBucket: "jukebox-eecb0.appspot.com",
+  messagingSenderId: "975391862639",
+  appId: process.env.FIREBASE_APP_ID || '',
+  measurementId: "G-QRXSJFRWHJ"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+
 const answererCandidateString = "answererCandidates";
 const offererCandidateString = "offererCandidates";
 
 // Global state
-var myUserID = "";
-var sessionId = "";
-var consensusMajority = 0; // Number of acceptors is floor((consensusMajority - 1)/2) + 1
+var myUserID: string = "";
+var sessionId: string = "";
+var consensusMajority: number = 0; // Number of acceptors is floor((consensusMajority - 1)/2) + 1
 
 // Role strings
 const DISTINGUISHED_PROPOSER = "distingushed-proposer";
@@ -71,6 +94,7 @@ const CANT_PROMISE = 10;
 const ACCEPTED = 11;
 const REQUEST = 12;
 const LEARN = 13;
+const JOINING = 14;
 
 // TODO: Mutexes
 
@@ -88,9 +112,13 @@ interface message {
   round_type: number;
   ranking_val?: number;
   timestamp?: number;
-  song?: Song;
+  song?: Song | null;
   must_accept?: boolean;
   index?: number;
+  joiningMember?: string;
+  queue?: Song[];
+  isPlaying?: boolean;
+  player?: Spotify.Player | null;
 }
 
 var messageQueue: message[] = [];
@@ -111,12 +139,13 @@ const configuration = {
 };
 
 // dictionary from userID -> peerConnection
-interface connectionInfo {
-  peerConnection: RTCPeerConnection;
-  dataChannel: RTCDataChannel;
-};
+// interface connectionInfo {
+//   peerConnection: RTCPeerConnection;
+//   dataChannel: RTCDataChannel;
+// };
 
-var userToConnection: {[id: string]: connectionInfo;} = {};
+var userToConnection: {[id: string]: RTCPeerConnection} = {};
+var userToDataChannel: {[id: string]: RTCDataChannel} = {};
 var currMembers: Set<string> = new Set();
 
 // Creates user entry in database
@@ -177,6 +206,8 @@ async function createSession(roomAlias: string) {
     },
   };
 
+  currMembers.add(myUserID);
+  consensusMajority = 0;
   const sessionRef = await db.collection("sessions").add(sessionEntry);
   sessionRef.onSnapshot(handleMembershipChange);
   sessionId = sessionRef.id;
@@ -209,39 +240,42 @@ async function joinSession() {
     .then(() => {
       console.log("Membership updated!");
     });
+  currMembers = new Set(userList);
+  currMembers.add(myUserID);
+  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
   sessionRef.onSnapshot(handleMembershipChange);
 }
 
 async function sendPeerConnectionOffer(ID : string) {
   const db = firebase.firestore();
   const peerConnection = new RTCPeerConnection(configuration);
-  userToConnection[ID].peerConnection = peerConnection;
+  userToConnection[ID] = peerConnection;
 
   console.log(`Creating data channel with ${ID}.`);
-  const dataChannel = userToConnection[ID].peerConnection.createDataChannel(
+  const dataChannel = userToConnection[ID].createDataChannel(
     `${myUserID}-${ID} data channel`
   );
-  userToConnection[ID].dataChannel = dataChannel;
+  userToDataChannel[ID] = dataChannel;
 
   // Add event handler for error, open, close and message
-  userToConnection[ID].dataChannel.onerror = () => {
+  userToDataChannel[ID].onerror = () => {
     console.log(`Data channel to ${ID} had error.`);
-    userToConnection[ID].dataChannel.close();
+    userToDataChannel[ID].close();
   };
-  userToConnection[ID].dataChannel.onopen = () => {
+  userToDataChannel[ID].onopen = () => {
     console.log(`Data channel to ${ID} is open`);
   };
-  userToConnection[ID].dataChannel.onclose = () => {
+  userToDataChannel[ID].onclose = () => {
     console.log(`Data channel to ${ID} is closed`);
   };
-  userToConnection[ID].dataChannel.onmessage = handleNewMessage;
+  userToDataChannel[ID].onmessage = handleNewMessage;
 
   console.log("Added listener: ", dataChannel);
 
   registerPeerConnectionListeners(ID);
 
-  const offer = await userToConnection[ID].peerConnection.createOffer();
-  await userToConnection[ID].peerConnection.setLocalDescription(offer);
+  const offer = await userToConnection[ID].createOffer();
+  await userToConnection[ID].setLocalDescription(offer);
   console.log("Created offer:", offer);
 
   const userRef = db.collection("userOffers").doc(`${ID}`);
@@ -261,20 +295,20 @@ async function sendPeerConnectionOffer(ID : string) {
 
 // Pass in the ID of a peer connection
 function registerPeerConnectionListeners(ID: string) {
-  userToConnection[ID].peerConnection.addEventListener(
+  userToConnection[ID].addEventListener(
     "icegatheringstatechange",
     () => {
       console.log(
-        `ICE gathering state changed: ${userToConnection[ID].peerConnection.iceGatheringState}`
+        `ICE gathering state changed: ${userToConnection[ID].iceGatheringState}`
       );
     }
   );
 
-  userToConnection[ID].peerConnection.addEventListener(
+  userToConnection[ID].addEventListener(
     "connectionstatechange",
     async () => {
       const db = firebase.firestore();
-      switch (userToConnection[ID].peerConnection.connectionState) {
+      switch (userToConnection[ID].connectionState) {
         case "connecting":
           console.log(`Connecting to ${ID}`);
           break;
@@ -286,11 +320,10 @@ function registerPeerConnectionListeners(ID: string) {
             `Connection to ${ID} failed. One or more of ICE transports has failed`
           );
           console.log(`Attempting to reconnect with ${ID}`);
-          userToConnection[ID].peerConnection.close();
+          userToConnection[ID].close();
           delete userToConnection[ID];
           sendPeerConnectionOffer(ID);
           currMembers.delete(ID);
-          // TODO: restart connection stuff?
           break;
         case "disconnected":
           console.log(`Disconnected from ${ID}`);
@@ -322,10 +355,10 @@ function registerPeerConnectionListeners(ID: string) {
           console.log(`Removed user ${ID}`);
 
           if (ID in userToConnection) {
-            if (userToConnection[ID].dataChannel.readyState === "open") {
-              userToConnection[ID].dataChannel.close();
+            if (userToDataChannel[ID].readyState === "open") {
+              userToDataChannel[ID].close();
             }
-            userToConnection[ID].peerConnection.close();
+            userToConnection[ID].close();
             delete userToConnection[ID];
           }
           currMembers.delete(ID);
@@ -336,25 +369,23 @@ function registerPeerConnectionListeners(ID: string) {
         default:
           break;
       }
-
-      // TODO, consensus round to see if connection is down for everyone
     }
   );
 
-  userToConnection[ID].peerConnection.addEventListener(
+  userToConnection[ID].addEventListener(
     "signalingstatechange",
     () => {
       console.log(
-        `Signaling state change: ${userToConnection[ID].peerConnection.signalingState}`
+        `Signaling state change: ${userToConnection[ID].signalingState}`
       );
     }
   );
 
-  userToConnection[ID].peerConnection.addEventListener(
+  userToConnection[ID].addEventListener(
     "iceconnectionstatechange ",
     () => {
       console.log(
-        `ICE connection state change: ${userToConnection[ID].peerConnection.iceConnectionState}`
+        `ICE connection state change: ${userToConnection[ID].iceConnectionState}`
       );
     }
   );
@@ -369,41 +400,44 @@ async function handleNewOffer(change: firebase.firestore.DocumentChange) {
   const otherUserID = change.doc.data().id;
   console.log(`New offer from ${otherUserID}: `, offer);
   const peerConnection = new RTCPeerConnection(configuration);
-  userToConnection[otherUserID].peerConnection = peerConnection;
+  userToConnection[otherUserID] = peerConnection;
   registerPeerConnectionListeners(otherUserID);
 
   // Creating a data channel
-  userToConnection[otherUserID].peerConnection.addEventListener(
+  userToConnection[otherUserID].addEventListener(
     "datachannel",
     async (event) => {
       console.log("New data channel: ", event);
       const dataChannel = event.channel;
-      userToConnection[otherUserID].dataChannel = dataChannel;
+      userToDataChannel[otherUserID] = dataChannel;
 
       // Add event handler for error, close, open and message
-      userToConnection[otherUserID].dataChannel.onerror = () => {
+      userToDataChannel[otherUserID].onerror = () => {
         console.log(`Data channel to ${otherUserID} had error.`);
-        userToConnection[otherUserID].dataChannel.close();
+        userToDataChannel[otherUserID].close();
       };
-      userToConnection[otherUserID].dataChannel.onopen = () => {
+      userToDataChannel[otherUserID].onopen = () => {
         console.log(`Data channel to ${otherUserID} is open`);
+        if (myRole === DISTINGUISHED_PROPOSER) {
+          triggerSendState(otherUserID);
+        }
       };
-      userToConnection[otherUserID].dataChannel.onclose = () => {
+      userToDataChannel[otherUserID].onclose = () => {
         console.log(`Data channel to ${otherUserID} is closed`);
       };
-      userToConnection[otherUserID].dataChannel.onmessage = handleNewMessage;
+      userToDataChannel[otherUserID].onmessage = handleNewMessage;
 
       console.log("Added listener: ", dataChannel);
     }
   );
 
-  await userToConnection[otherUserID].peerConnection.setRemoteDescription(
+  await userToConnection[otherUserID].setRemoteDescription(
     offer
   );
   const answer = await userToConnection[
     otherUserID
-  ].peerConnection.createAnswer();
-  await userToConnection[otherUserID].peerConnection.setLocalDescription(
+  ].createAnswer();
+  await userToConnection[otherUserID].setLocalDescription(
     answer
   );
   console.log("Set remote and local descriptions.");
@@ -440,7 +474,7 @@ async function handleNewAnswer(change: firebase.firestore.DocumentChange) {
   const otherUserID = change.doc.data().id;
 
   console.log(`New answer from ${otherUserID}: `, answerObj);
-  await userToConnection[otherUserID].peerConnection.setRemoteDescription(
+  await userToConnection[otherUserID].setRemoteDescription(
     answerObj
   );
   await addICECollection(
@@ -450,8 +484,8 @@ async function handleNewAnswer(change: firebase.firestore.DocumentChange) {
     offererCandidateString,
     answererCandidateString
   );
-  currMembers.add(otherUserID);
-  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+  // currMembers.add(otherUserID);
+  // consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
 }
 
 async function addICECollection(
@@ -469,7 +503,7 @@ async function addICECollection(
     .doc(`${offererUserID}${answererUserID}`);
 
   const candidatesCollection = entryRef.collection(localName);
-  userToConnection[peerConnectionID].peerConnection.addEventListener(
+  userToConnection[peerConnectionID].addEventListener(
     "icecandidate",
     (event) => {
       if (!event.candidate) {
@@ -486,7 +520,7 @@ async function addICECollection(
       if (change.type === "added") {
         let data = change.doc.data();
         console.log(`Got new remote ICE candidate: ${JSON.stringify(data)}`);
-        await userToConnection[peerConnectionID].peerConnection.addIceCandidate(
+        await userToConnection[peerConnectionID].addIceCandidate(
           data
         );
       }
@@ -522,10 +556,10 @@ async function handleMembershipChange(snapshot: firebase.firestore.DocumentSnaps
 
     // Drop member from everything
     if (id in userToConnection) {
-      if (userToConnection[id].dataChannel.readyState === "open") {
-        userToConnection[id].dataChannel.close();
+      if (userToDataChannel[id].readyState === "open") {
+        userToDataChannel[id].close();
       }
-      userToConnection[id].peerConnection.close();
+      userToConnection[id].close();
       currMembers.delete(id);
       delete userToConnection[id];
     }
@@ -541,7 +575,6 @@ async function handleMembershipChange(snapshot: firebase.firestore.DocumentSnaps
                 messageQueue[0].round_type = ACCEPT;
                 messageQueue[0].must_accept = true;
                 sendMessage(messageQueue[0], ACCEPTOR);
-                // TODO: implement force accept
               } else if (promises < consensusMajority) {
                 // Person dropped while a prepare round was in progress
                 //  Restart last round with a higher ranking_val
@@ -609,30 +642,31 @@ function resetProposerGlobals(lastRankingVal : number) {
 // Sends a message to the specified recipient class (DISTINGUISHED_PROPOSER|ACCEPTOR|LEARNER)
 async function sendMessage(message: message, recipient : string) {
   // let message = document.querySelector("#message-test-id").value;
-  console.log("about to send message ", message);
+  console.log(`about to send message ${JSON.stringify(message)} to recipient ${recipient} with ranking val ${message.ranking_val} and message type ${message.message_type}`);
 
   const sessionMembersArray : string[] = Array.from(currMembers);
+  console.log("Current members: ", sessionMembersArray);
 
   for (let i = 0; i < sessionMembersArray.length; i++) {
     let ID : string = sessionMembersArray[i];
 
-    if ((i = 0 && recipient === DISTINGUISHED_PROPOSER)) {
+    if (i === 0 && recipient === DISTINGUISHED_PROPOSER) {
       console.log("Sending message to proposer");
-      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+      userToDataChannel[ID].send(JSON.stringify(message));
     } else if (
       i > 0 &&
       i < Math.floor((sessionMembersArray.length - 1) / 2) + 2 &&
       recipient === ACCEPTOR
     ) {
       console.log("Sending message to acceptor");
-      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+      userToDataChannel[ID].send(JSON.stringify(message));
     } else if (
       i > Math.floor((sessionMembersArray.length - 1) / 2) + 1 &&
       i < sessionMembersArray.length &&
       recipient === LEARNER
     ) {
       console.log("Sending message to learner");
-      userToConnection[ID].dataChannel.send(JSON.stringify(message));
+      userToDataChannel[ID].send(JSON.stringify(message));
     }
   }
 }
@@ -640,7 +674,7 @@ async function sendMessage(message: message, recipient : string) {
 // Called when a data channel receives a new message
 async function handleNewMessage(event: MessageEvent) {
   var message = JSON.parse(event.data);
-  console.log(`new message of ${message}`);
+  console.log(`new message of ${JSON.stringify(message)} with ranking val ${message.ranking_val} and message type ${message.message_type}`);
 
   // Handle according to role
   switch (myRole) {
@@ -662,6 +696,8 @@ async function handleNewMessage(event: MessageEvent) {
             if (promises === consensusMajority) {
               message.round_type = ACCEPT;
               sendMessage(message, ACCEPTOR);
+
+              updateDataStructures(message);
               promises = 0;
             }
           }
@@ -754,6 +790,11 @@ async function handleNewMessage(event: MessageEvent) {
             lastAcceptedRankingVal = message.ranking_val;
           }
           break;
+        case JOINING:
+          console.log("Triggering joiner match state event");
+          triggerMatchState(message);
+
+          break;
         default:
           console.log(
             "Unrecognized round type for acceptor:",
@@ -771,6 +812,11 @@ async function handleNewMessage(event: MessageEvent) {
             lastLearned = message.ranking_val;
           }
           break;
+        case JOINING:
+          console.log("Triggering joiner match state event");
+          triggerMatchState(message);
+  
+          break;
         default:
           console.log(
             "Unrecognized round type for learner:",
@@ -784,8 +830,9 @@ async function handleNewMessage(event: MessageEvent) {
   }
 }
 
-// TODO: Modify local data structures based on the message's operation
+
 function updateDataStructures(message: message) {
+  console.log(`Updating data structures with ranking val ${message.ranking_val} and message type ${message.message_type}`)
 
   // Custom event for broadcasting updates
   const event = new CustomEvent("updateDataStructures", {detail: message});
@@ -832,12 +879,20 @@ function updateDataStructures(message: message) {
 //  The client passes in the metadata for the action they want to initiate as per
 //  the message schema above
 async function initiateMessage(message: message) {
+  console.log("Message initiated:", message)
   switch (myRole) {
     case DISTINGUISHED_PROPOSER:
-      messageQueue.push(message);
-      if (messageQueue.length === 1) {
-        startRound();
-      }
+      if (message.message_type === JOINING) {
+        userToDataChannel[message.joiningMember || ''].send(JSON.stringify(message));
+      } else if (currMembers.size === 1) {
+        updateDataStructures(message);
+      } else {
+        messageQueue.push(message);
+        if (messageQueue.length === 1) {
+          startRound();
+        }
+      } 
+      
       break;
     case ACCEPTOR:
       message.round_type = REQUEST;
@@ -855,11 +910,29 @@ async function initiateMessage(message: message) {
 
 // For proposer to handle consensus
 async function startRound() {
+  console.log("Consensus round started")
   roundInProgress = true;
   messageQueue[0].ranking_val = ranking_val;
   messageQueue[0].round_type = PREPARE;
   sendMessage(messageQueue[0], ACCEPTOR);
 }
+
+// TODO: function for proposer getting state from Playback
+async function triggerSendState(userID : string) {
+  console.log(`Starting to send state to new member ${userID}`);
+
+  // Custom event for broadcasting updates
+  const event = new CustomEvent("sendState", {detail: userID});
+
+  window.dispatchEvent(event);
+}
+
+async function triggerMatchState(message : message) {
+  const event = new CustomEvent("matchState", {detail: message});
+  window.dispatchEvent(event);
+}
+
+// TODO: function for joiner sending state to Playback (wait just use updateDataStructures)
 
 // For proposer
 // var ranking_val = 1;
@@ -870,4 +943,4 @@ async function startRound() {
 
 // init();
 
-export { createOrJoin, initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP };
+export { createOrJoin, initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP, JOINING};

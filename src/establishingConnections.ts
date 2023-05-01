@@ -1,4 +1,6 @@
 import firebase from "firebase/compat/app";
+import { UrlWithStringQuery } from "url";
+import { Song } from "./types/Music";
 
 /*
 
@@ -80,7 +82,18 @@ var myRole = NO_ROLE;
 // For proposer
 var ranking_val = 1;
 var roundInProgress = false;
-var messageQueue = [];
+
+interface message {
+  message_type: number;
+  round_type: number;
+  ranking_val?: number;
+  timestamp?: number;
+  song?: Song;
+  must_accept?: boolean;
+  index?: number;
+}
+
+var messageQueue: message[] = [];
 var promises = 0;
 var acceptances = 0;
 
@@ -98,8 +111,13 @@ const configuration = {
 };
 
 // dictionary from userID -> peerConnection
-var userToConnection = {};
-var currMembers = new Set();
+interface connectionInfo {
+  peerConnection: RTCPeerConnection;
+  dataChannel: RTCDataChannel;
+};
+
+var userToConnection: {[id: string]: connectionInfo;} = {};
+var currMembers: Set<string> = new Set();
 
 // Creates user entry in database
 async function addUser() {
@@ -121,30 +139,30 @@ async function addUser() {
 //    to join the session.
 // Also adds an entry to the userOffers table which will be
 //    used as a way to send and receive offers
-async function createOrJoin(roomAlias) {
+async function createOrJoin(roomAlias: string) {
   // Create user before opening room
   await addUser();
 
   const db = firebase.firestore();
 
-  const results = await db
-    .collection("sessions")
+  db.collection("sessions")
     .where("alias", "==", roomAlias)
-    .get();
-
-  if (results.length > 0) {
-    results.forEach((doc) => {
-      sessionId = doc.id;
-    });
-
-    joinSession();
-  } else {
-    createSession(roomAlias);
-  }
+    .get().then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        sessionId = doc.id;
+      });
+      if (sessionId != '') {
+        joinSession();
+      } else {
+        createSession(roomAlias)
+      }
+  
+      
+    })
 }
 
 // Creates a new session with the roomAlias
-async function createSession(roomAlias) {
+async function createSession(roomAlias: string) {
   // Set role as distinguished proposer if creating session
   myRole = DISTINGUISHED_PROPOSER;
 
@@ -161,10 +179,6 @@ async function createSession(roomAlias) {
 
   const sessionRef = await db.collection("sessions").add(sessionEntry);
   sessionRef.onSnapshot(handleMembershipChange);
-
-  document.querySelector(
-    "#currentRoom"
-  ).innerText = `Current room is ${sessionRef.id} - You are the caller!`;
   sessionId = sessionRef.id;
 }
 
@@ -180,12 +194,13 @@ async function joinSession() {
 
   if (sessionSnapshot.exists) {
     // iterate over all users in the session
-    for (let ID of sessionSnapshot.data().users) {
+    for (let ID of sessionSnapshot?.data()?.users) {
       console.log(`Found user ${ID} in session!`);
       sendPeerConnectionOffer(ID);
     }
+
   }
-  const userList = sessionSnapshot.data().users;
+  const userList = sessionSnapshot?.data()?.users;
   userList.push(myUserID);
   sessionRef
     .update({
@@ -197,10 +212,9 @@ async function joinSession() {
   sessionRef.onSnapshot(handleMembershipChange);
 }
 
-async function sendPeerConnectionOffer(ID) {
+async function sendPeerConnectionOffer(ID : string) {
   const db = firebase.firestore();
   const peerConnection = new RTCPeerConnection(configuration);
-  userToConnection[ID] = {};
   userToConnection[ID].peerConnection = peerConnection;
 
   console.log(`Creating data channel with ${ID}.`);
@@ -246,7 +260,7 @@ async function sendPeerConnectionOffer(ID) {
 }
 
 // Pass in the ID of a peer connection
-function registerPeerConnectionListeners(ID) {
+function registerPeerConnectionListeners(ID: string) {
   userToConnection[ID].peerConnection.addEventListener(
     "icegatheringstatechange",
     () => {
@@ -282,7 +296,7 @@ function registerPeerConnectionListeners(ID) {
           console.log(`Disconnected from ${ID}`);
           const sessionRef = db.collection("sessions").doc(`${sessionId}`);
           const sessionSnapshot = await sessionRef.get();
-          const sessionMembers = sessionSnapshot.data().users;
+          const sessionMembers = sessionSnapshot?.data()?.users;
 
           const idxToRemove = sessionMembers.indexOf(ID);
           if (idxToRemove > -1) {
@@ -346,7 +360,7 @@ function registerPeerConnectionListeners(ID) {
   );
 }
 
-async function handleNewOffer(change) {
+async function handleNewOffer(change: firebase.firestore.DocumentChange) {
   const db = firebase.firestore();
   const offer = {
     type: change.doc.data().type,
@@ -355,7 +369,6 @@ async function handleNewOffer(change) {
   const otherUserID = change.doc.data().id;
   console.log(`New offer from ${otherUserID}: `, offer);
   const peerConnection = new RTCPeerConnection(configuration);
-  userToConnection[otherUserID] = {};
   userToConnection[otherUserID].peerConnection = peerConnection;
   registerPeerConnectionListeners(otherUserID);
 
@@ -418,7 +431,7 @@ async function handleNewOffer(change) {
   consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
 }
 
-async function handleNewAnswer(change) {
+async function handleNewAnswer(change: firebase.firestore.DocumentChange) {
   // const db = firebase.firestore();
   const answerObj = {
     type: change.doc.data().type,
@@ -442,11 +455,11 @@ async function handleNewAnswer(change) {
 }
 
 async function addICECollection(
-  offererUserID,
-  answererUserID,
-  peerConnectionID,
-  localName,
-  remoteName
+  offererUserID : string,
+  answererUserID : string,
+  peerConnectionID: string,
+  localName : string,
+  remoteName : string
 ) {
   const db = firebase.firestore();
   const entryRef = await db
@@ -481,16 +494,16 @@ async function addICECollection(
   });
 }
 
-async function handleMembershipChange(snapshot) {
-  const memberList = snapshot.data().users;
-  const droppedRole = snapshot.data().personDropped.role;
-  const id = snapshot.data().personDropped.ID;
+async function handleMembershipChange(snapshot: firebase.firestore.DocumentSnapshot) {
+  const memberList = snapshot?.data()?.users;
+  const droppedRole = snapshot?.data()?.personDropped.role;
+  const id = snapshot?.data()?.personDropped.ID;
   console.log("Update to group membership.");
   console.log(`Person dropped: ${id}`);
 
   let myNewRole = "";
 
-  for (let i in memberList) {
+  for (let i = 0; i<memberList.length; i++) {
     let member = memberList[i];
     if (member === myUserID) {
       if (i === 0) {
@@ -577,7 +590,7 @@ async function handleMembershipChange(snapshot) {
     // If proposer left and you are not a proposer, send new proposer queued changes
 
     // Remove person from data structures
-    currMembers = Set(memberList);
+    currMembers = new Set(memberList);
   } else if (memberList.length > currMembers.size) {
   }
 
@@ -585,7 +598,7 @@ async function handleMembershipChange(snapshot) {
   consensusMajority = Math.floor((memberList.size - 1) / 2) + 1;
 }
 
-function resetProposerGlobals(lastRankingVal) {
+function resetProposerGlobals(lastRankingVal : number) {
   ranking_val = lastRankingVal + 1;
   roundInProgress = false;
   messageQueue = [];
@@ -594,14 +607,14 @@ function resetProposerGlobals(lastRankingVal) {
 }
 
 // Sends a message to the specified recipient class (DISTINGUISHED_PROPOSER|ACCEPTOR|LEARNER)
-async function sendMessage(message, recipient) {
+async function sendMessage(message: message, recipient : string) {
   // let message = document.querySelector("#message-test-id").value;
   console.log("about to send message ", message);
 
-  const sessionMembersArray = Array.from(currMembers);
+  const sessionMembersArray : string[] = Array.from(currMembers);
 
   for (let i = 0; i < sessionMembersArray.length; i++) {
-    let ID = sessionMembersArray[i];
+    let ID : string = sessionMembersArray[i];
 
     if ((i = 0 && recipient === DISTINGUISHED_PROPOSER)) {
       console.log("Sending message to proposer");
@@ -625,7 +638,7 @@ async function sendMessage(message, recipient) {
 }
 
 // Called when a data channel receives a new message
-async function handleNewMessage(event) {
+async function handleNewMessage(event: MessageEvent) {
   var message = JSON.parse(event.data);
   console.log(`new message of ${message}`);
 
@@ -772,23 +785,13 @@ async function handleNewMessage(event) {
 }
 
 // TODO: Modify local data structures based on the message's operation
-function updateDataStructures(message) {
-  switch (message.message_type) {
-    case TOGGLE:
-      break;
-    case PLAY:
-      break;
-    case ADD:
-      break;
-    case REMOVE:
-      break;
-    case SCRUB:
-      break;
-    case SKIP:
-      break;
-    default:
-      console.log("Unknown message type:", message.type);
-  }
+function updateDataStructures(message: message) {
+
+  // Custom event for broadcasting updates
+  const event = new CustomEvent("updateDataStructures", {detail: message});
+
+  window.dispatchEvent(event);
+
 }
 
 /*
@@ -828,7 +831,7 @@ function updateDataStructures(message) {
 // This function is called by UI when a client wants to initiate an action.å
 //  The client passes in the metadata for the action they want to initiate as per
 //  the message schema above
-async function initiateMessage(message) {
+async function initiateMessage(message: message) {
   switch (myRole) {
     case DISTINGUISHED_PROPOSER:
       messageQueue.push(message);
@@ -867,4 +870,4 @@ async function startRound() {
 
 // init();
 
-export { createOrJoin, initiateMessage };
+export { createOrJoin, initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP };

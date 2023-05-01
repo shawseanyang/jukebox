@@ -13,7 +13,7 @@ import SpotifyUtil from "../util/spotifyUtil";
 import Consensus from "../consensus_manager/Consensus";
 import { addSong, deleteSong, playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
 import ConnectToServiceModal from "../components/ConnectToServiceModal";
-import { initiateMessage } from "../establishingConnections";
+import { initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP } from "../establishingConnections";
 
 enum ModalStates {
   // The user has not connected to a service yet, for example, Spotify
@@ -48,6 +48,40 @@ const Playback = () => {
   const [songProgressUpdateTrigger, setSongProgressUpdateTrigger] = useState(false);
   const [modalState, setModalState] = useState<ModalStates>(ModalStates.CONNECT_TO_SERVICE);
   const [messageApi, contextHolder] = message.useMessage();
+
+  // Adds event listener for storage updates
+  useEffect(() => {
+    window.addEventListener("updateDataStructures", ((event : CustomEvent) => {
+      const message = event.detail;
+
+      switch (message.message_type) {
+        case TOGGLE:
+          setIsPlaying(!isPlaying);
+          player?.togglePlay();
+          break;
+        case PLAY:
+          break;
+        case ADD:
+          setQueue(queue => [...queue, message.song]);
+          break;
+        case REMOVE:
+          setQueue(queue => queue.filter((_, i) => i !== message.index));
+          break;
+        case SCRUB:
+          setSongProgress(message.timestamp);
+          player?.seek(message.timestamp);
+          break;
+        case SKIP:
+          if (queue.length > 0) {
+            tryPlaySong(queue[0]);
+            setQueue(queue.slice(1));
+          }
+          break;
+        default:
+          console.log("Unrecognized case in updateDataStructures event listener")
+      }
+    }) as EventListener);
+  }, [])
 
   // Updates the song progress every 500ms
   useEffect(() => {
@@ -132,7 +166,7 @@ const Playback = () => {
       // If consensus is reached, add song to queue
       // Add song to the end of the queue
       const addSongRequest = {
-        message_type: 3,
+        message_type: ADD,
         round_type: 12,
         song: song
       };
@@ -149,7 +183,7 @@ const Playback = () => {
     Consensus.deleteSong(index, (index: number) => {
       // If consensus is reached, delete song from queue
       const deleteSongRequest = {
-        message_type: 4,
+        message_type: REMOVE,
         round_type: 12,
         index: index
       };
@@ -166,13 +200,13 @@ const Playback = () => {
     Consensus.skipSong(() => {
       // If consensus is reached, skip song
       const skipSongRequest = {
-        message_type: 6,
+        message_type: SKIP,
         round_type: 12
       };
       initiateMessage(skipSongRequest);
       if (queue.length > 0) {
-        tryPlaySong(queue[0]);
-        setQueue(queue.slice(1));
+        // tryPlaySong(queue[0]);
+        // setQueue(queue.slice(1));
         if (callback) {
           callback();
         }
@@ -185,7 +219,7 @@ const Playback = () => {
     Consensus.playSong(song, (song: Song) => {
       // If consensus is reached, play song
       const playSongRequest = {
-        message_type: 2,
+        message_type: PLAY,
         round_type: 12
       };
       initiateMessage(playSongRequest);
@@ -204,7 +238,7 @@ const Playback = () => {
     Consensus.scrubTo(location, (location: Milliseconds) => {
       // If consensus is reached, scrub to location
       const scrubRequest = {
-        message_type: 5,
+        message_type: SCRUB,
         round_type: 12,
         timestamp: location
       };
@@ -220,12 +254,12 @@ const Playback = () => {
     Consensus.togglePlayback(() => {
       // If consensus is reached, toggle playback
       const togglePlaybackRequest = {
-        message_type: 1,
+        message_type: TOGGLE,
         round_type: 12
       };
       initiateMessage(togglePlaybackRequest);
-      setIsPlaying(!isPlaying);
-      player?.togglePlay();
+      // setIsPlaying(!isPlaying);
+      // player?.togglePlay();
       if (callback) {
         callback();
       }

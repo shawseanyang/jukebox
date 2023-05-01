@@ -13,6 +13,7 @@ import SpotifyUtil from "../util/spotifyUtil";
 import Consensus from "../consensus_manager/Consensus";
 import { addSong, deleteSong, playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
 import ConnectToServiceModal from "../components/ConnectToServiceModal";
+import { initiateMessage } from "../establishingConnections";
 
 enum ModalStates {
   // The user has not connected to a service yet, for example, Spotify
@@ -33,6 +34,8 @@ export const PROGRESS_STEPS = [
   },
 ]
 
+const SKIP_SONG_INTERVAL = 1000;
+
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
   const [queue, setQueue] = useState<Queue>([]);
@@ -46,6 +49,7 @@ const Playback = () => {
   const [modalState, setModalState] = useState<ModalStates>(ModalStates.CONNECT_TO_SERVICE);
   const [messageApi, contextHolder] = message.useMessage();
 
+  // Updates the song progress every 500ms
   useEffect(() => {
     const interval = setInterval(() => {
       setSongProgressUpdateTrigger(!songProgressUpdateTrigger);
@@ -58,6 +62,16 @@ const Playback = () => {
     }, 500);
     return () => clearInterval(interval);
   }, [songProgressUpdateTrigger]);
+
+  // Plays next song in queue when the current song ends
+  useEffect(() => {
+    if (queue.length > 0 && currentSong && currentSong.duration - songProgress < SKIP_SONG_INTERVAL) {
+      setCurrentSong(queue[0]);
+      SpotifyUtil.playSong(queue[0].uri, token);
+      setQueue(queue => queue.slice(1));
+      setSongProgress(0);
+    }
+  }, [songProgress]);
 
   useEffect(() => {
     var args = window.location.href;
@@ -117,7 +131,13 @@ const Playback = () => {
     Consensus.addSong(song, (song: Song) => {
       // If consensus is reached, add song to queue
       // Add song to the end of the queue
-      setQueue(queue => [...queue, song]);
+      const addSongRequest = {
+        message_type: 3,
+        round_type: 12,
+        song: song
+      };
+      initiateMessage(addSongRequest);
+      // setQueue(queue => [...queue, song]);
       if (callback) {
         callback(song);
       }
@@ -128,7 +148,13 @@ const Playback = () => {
   const tryDeleteSong: deleteSong = (index, callback) => {
     Consensus.deleteSong(index, (index: number) => {
       // If consensus is reached, delete song from queue
-      setQueue(queue => queue.filter((_, i) => i !== index));
+      const deleteSongRequest = {
+        message_type: 4,
+        round_type: 12,
+        index: index
+      };
+      initiateMessage(deleteSongRequest);
+      // setQueue(queue => queue.filter((_, i) => i !== index));
       if (callback) {
         callback(index);
       }
@@ -139,6 +165,11 @@ const Playback = () => {
   const trySkipSong: skipSong = (callback) => {
     Consensus.skipSong(() => {
       // If consensus is reached, skip song
+      const skipSongRequest = {
+        message_type: 6,
+        round_type: 12
+      };
+      initiateMessage(skipSongRequest);
       if (queue.length > 0) {
         tryPlaySong(queue[0]);
         setQueue(queue.slice(1));
@@ -153,7 +184,12 @@ const Playback = () => {
   const tryPlaySong: playSong = (song, callback) => {
     Consensus.playSong(song, (song: Song) => {
       // If consensus is reached, play song
-      setCurrentSong(song);
+      const playSongRequest = {
+        message_type: 2,
+        round_type: 12
+      };
+      initiateMessage(playSongRequest);
+      // setCurrentSong(song);
       SpotifyUtil.playSong(song.uri, token);
       if (callback) {
         callback(song);
@@ -167,6 +203,12 @@ const Playback = () => {
     player?.seek(location);
     Consensus.scrubTo(location, (location: Milliseconds) => {
       // If consensus is reached, scrub to location
+      const scrubRequest = {
+        message_type: 5,
+        round_type: 12,
+        timestamp: location
+      };
+      initiateMessage(scrubRequest);
       if (callback) {
         callback(location);
       }
@@ -177,6 +219,11 @@ const Playback = () => {
   const tryTogglePlayback: togglePlayback = (callback) => {
     Consensus.togglePlayback(() => {
       // If consensus is reached, toggle playback
+      const togglePlaybackRequest = {
+        message_type: 1,
+        round_type: 12
+      };
+      initiateMessage(togglePlaybackRequest);
       setIsPlaying(!isPlaying);
       player?.togglePlay();
       if (callback) {
@@ -224,6 +271,7 @@ const Playback = () => {
               togglePlayback={tryTogglePlayback}
               skipSong={trySkipSong}
               scrubTo={tryScrubTo}
+              // skipSongInterval={SKIP_SONG_INTERVAL}
             />
           </Col>
         </Row>

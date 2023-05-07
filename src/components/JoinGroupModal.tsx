@@ -1,6 +1,7 @@
 import { Modal, Input, Steps, Space } from "antd";
 import { UsergroupAddOutlined } from '@ant-design/icons';
 import { useState } from "react";
+import {createOrJoin} from "../establishingConnections";
 
 const GroupInput = Input.Search
 
@@ -20,16 +21,16 @@ const JoinGroupModal = (props: JoinGroupModalProps) => {
   }
 
   // Validate the group name and ask the server to join/create the group if it is valid. Calls args.joinGroup() if successful.
-  function joinGroup(group: string) {
+  async function joinGroup(group: string) {
     if (isValidGroupName(group)) {
       setIsInputValid(true);
       setIsLoading(true);
-      // TODO: await joinSession() ; remove the setTimeout
-      setTimeout(() => {
-        // after successfully joining or creating a group with the server, do the following:
-        setIsLoading(false);
-        props.joinGroup(group);
-      }, 1000);
+      
+      await createOrJoin(group);
+
+      // after successfully joining or creating a group with the server, do the following:
+      setIsLoading(false);
+      props.joinGroup(group);
     } else {
       setIsInputValid(false);
     }

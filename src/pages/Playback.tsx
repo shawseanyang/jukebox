@@ -13,6 +13,7 @@ import SpotifyUtil from "../util/spotifyUtil";
 import Consensus from "../consensus_manager/Consensus";
 import { addSong, deleteSong, playSong, scrubTo, skipSong, togglePlayback } from "../types/Playback";
 import ConnectToServiceModal from "../components/ConnectToServiceModal";
+import { initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP, JOINING} from "../establishingConnections";
 
 enum ModalStates {
   // The user has not connected to a service yet, for example, Spotify
@@ -33,6 +34,8 @@ export const PROGRESS_STEPS = [
   },
 ]
 
+const SKIP_SONG_INTERVAL = 1000;
+
 const Playback = () => {
   const [group, setGroup] = useState<string | null>(null);
   const [queue, setQueue] = useState<Queue>([]);
@@ -46,6 +49,33 @@ const Playback = () => {
   const [modalState, setModalState] = useState<ModalStates>(ModalStates.CONNECT_TO_SERVICE);
   const [messageApi, contextHolder] = message.useMessage();
 
+  // Adds event listener for storage updates
+  useEffect(() => {
+    window.addEventListener("updateDataStructures", ( update as EventListener), true);
+    return () => {
+      window.removeEventListener("updateDataStructures", (update as EventListener), true);
+    };
+  }, [player, queue, isPlaying, songProgress, currentSong])
+
+  // Add event listener for sending state
+  useEffect(() => {
+    window.addEventListener("sendState", ( sendState as EventListener), true);
+    return () => {
+      window.removeEventListener("sendState", (sendState as EventListener), true);
+    };
+    
+  }, [queue, isPlaying, songProgress, currentSong])
+
+  // Add event listener for matching state
+  useEffect(() => {
+    window.addEventListener("matchState", ( matchState as EventListener), true);
+    return () => {
+      window.removeEventListener("matchState", (matchState as EventListener), true);
+    };
+    
+  }, [queue, isPlaying, songProgress, currentSong])
+
+  // Updates the song progress every 500ms
   useEffect(() => {
     const interval = setInterval(() => {
       setSongProgressUpdateTrigger(!songProgressUpdateTrigger);
@@ -58,6 +88,16 @@ const Playback = () => {
     }, 500);
     return () => clearInterval(interval);
   }, [songProgressUpdateTrigger]);
+
+  // Plays next song in queue when the current song ends
+  useEffect(() => {
+    if (queue.length > 0 && currentSong && currentSong.duration - songProgress < SKIP_SONG_INTERVAL) {
+      setCurrentSong(queue[0]);
+      SpotifyUtil.playSong(queue[0].uri, token);
+      setQueue(queue => queue.slice(1));
+      setSongProgress(0);
+    }
+  }, [songProgress]);
 
   useEffect(() => {
     var args = window.location.href;
@@ -112,12 +152,104 @@ const Playback = () => {
     return song !== null ? song.album.imageUrl : null;
   }
 
+  function update(event : CustomEvent) {
+    const message = event.detail;
+
+    switch (message.message_type) {
+      case TOGGLE:
+        console.log("We're toggling music play.");
+        console.log("Queue:", queue);
+        console.log("Current song:", currentSong);
+        setIsPlaying(!isPlaying);
+        console.log("Player:", player);
+        player?.togglePlay();
+        break;
+      case PLAY:
+        break;
+      case ADD:
+        console.log("adding song:", [...queue, message.song]);
+        setQueue(queue => [...queue, message.song]);
+        break;
+      case REMOVE:
+        setQueue(queue => queue.filter((_, i) => i !== message.index));
+        break;
+      case SCRUB:
+        setSongProgress(message.timestamp);
+        player?.seek(message.timestamp);
+        break;
+      case SKIP:
+        console.log("skip!! queue:", queue);
+        if (queue.length > 0) {
+          // tryPlaySong(queue[0]);
+          setCurrentSong(queue[0]);
+          SpotifyUtil.playSong(queue[0].uri, token);
+          setQueue(queue.slice(1));
+        }
+        break;
+      default:
+        console.log("Unrecognized case in updateDataStructures event listener")
+    }
+  }
+
+  function sendState(event: CustomEvent) {
+    const stateMessage = {
+      message_type: JOINING,
+      round_type: JOINING,
+      timestamp: songProgress,
+      song: currentSong,
+      joiningMember: event.detail,
+      queue: queue,
+      isPlaying: isPlaying,
+      player: player
+    };
+
+    console.log("Sending the following state:", JSON.stringify(stateMessage));
+
+    initiateMessage(stateMessage);
+  }
+
+  function matchState(event: CustomEvent) {
+    console.log("match state event!!", JSON.stringify(event.detail));
+    console.log("match state event player before:", JSON.stringify(player));
+    setCurrentSong(event.detail.song);
+    SpotifyUtil.playSong(event.detail.song.uri, token, event.detail.timestamp);
+
+    player?.seek(event.detail.timestamp);
+    if (isPlaying !== event.detail.isPlaying) {
+      player?.togglePlay();
+    }
+
+    // player?.seek(event.detail.timestamp);
+    // if (!event.detail.isPlaying) {
+    //   player?.pause();
+    // } else {
+
+    // }
+
+    setQueue(event.detail.queue);
+    setIsPlaying(event.detail.isPlaying);
+    setSongProgress(event.detail.timestamp);
+    setPlayer(player);
+    // if (!event.detail.isPlaying) {
+    //   player?.togglePlay();
+    // }
+
+    console.log("match state event player after:", JSON.stringify(player));
+  }
+
+  
   // Attempts to reach consensus on adding a song to the queue. If successful, adds song to queue and calls the callback.
   const tryAddSong: addSong = (song, callback) => {
     Consensus.addSong(song, (song: Song) => {
       // If consensus is reached, add song to queue
       // Add song to the end of the queue
-      setQueue(queue => [...queue, song]);
+      const addSongRequest = {
+        message_type: ADD,
+        round_type: 12,
+        song: song,
+      };
+      initiateMessage(addSongRequest);
+      // setQueue(queue => [...queue, song]);
       if (callback) {
         callback(song);
       }
@@ -128,7 +260,13 @@ const Playback = () => {
   const tryDeleteSong: deleteSong = (index, callback) => {
     Consensus.deleteSong(index, (index: number) => {
       // If consensus is reached, delete song from queue
-      setQueue(queue => queue.filter((_, i) => i !== index));
+      const deleteSongRequest = {
+        message_type: REMOVE,
+        round_type: 12,
+        index: index,
+      };
+      initiateMessage(deleteSongRequest);
+      // setQueue(queue => queue.filter((_, i) => i !== index));
       if (callback) {
         callback(index);
       }
@@ -139,9 +277,14 @@ const Playback = () => {
   const trySkipSong: skipSong = (callback) => {
     Consensus.skipSong(() => {
       // If consensus is reached, skip song
+      const skipSongRequest = {
+        message_type: SKIP,
+        round_type: 12,
+      };
+      initiateMessage(skipSongRequest);
       if (queue.length > 0) {
-        tryPlaySong(queue[0]);
-        setQueue(queue.slice(1));
+        // tryPlaySong(queue[0]);
+        // setQueue(queue.slice(1));
         if (callback) {
           callback();
         }
@@ -153,8 +296,13 @@ const Playback = () => {
   const tryPlaySong: playSong = (song, callback) => {
     Consensus.playSong(song, (song: Song) => {
       // If consensus is reached, play song
-      setCurrentSong(song);
-      SpotifyUtil.playSong(song.uri, token);
+      const playSongRequest = {
+        message_type: PLAY,
+        round_type: 12,
+      };
+      initiateMessage(playSongRequest);
+      // setCurrentSong(song);
+      // SpotifyUtil.playSong(song.uri, token);
       if (callback) {
         callback(song);
       }
@@ -167,6 +315,12 @@ const Playback = () => {
     player?.seek(location);
     Consensus.scrubTo(location, (location: Milliseconds) => {
       // If consensus is reached, scrub to location
+      const scrubRequest = {
+        message_type: SCRUB,
+        round_type: 12,
+        timestamp: location,
+      };
+      initiateMessage(scrubRequest);
       if (callback) {
         callback(location);
       }
@@ -177,8 +331,13 @@ const Playback = () => {
   const tryTogglePlayback: togglePlayback = (callback) => {
     Consensus.togglePlayback(() => {
       // If consensus is reached, toggle playback
-      setIsPlaying(!isPlaying);
-      player?.togglePlay();
+      const togglePlaybackRequest = {
+        message_type: TOGGLE,
+        round_type: 12,
+      };
+      initiateMessage(togglePlaybackRequest);
+      // setIsPlaying(!isPlaying);
+      // player?.togglePlay();
       if (callback) {
         callback();
       }
@@ -224,6 +383,7 @@ const Playback = () => {
               togglePlayback={tryTogglePlayback}
               skipSong={trySkipSong}
               scrubTo={tryScrubTo}
+              // skipSongInterval={SKIP_SONG_INTERVAL}
             />
           </Col>
         </Row>

@@ -13,22 +13,25 @@
     "@types/react-dom": "^18.0.11",
     "@types/webrtc": "^0.0.35",
     "antd": "^5.4.6",
+    "async-mutex": "^0.4.0",
     "buffer": "^6.0.3",
     "dotenv": "^16.0.3",
     "env-cmd": "^10.1.0",
     "firebase": "^9.20.0",
+    "mocha": "^10.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "^5.0.1",
     "react-scrubber": "^1.1.1",
     "styled-components": "^5.3.10",
+    "ts-node": "^10.9.1",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
     "start": "env-cmd -f .env.dev react-scripts start",
     "build": "env-cmd -f .env.prod react-scripts build",
-    "test": "react-scripts test",
+    "test": "mocha -r ts-node --extensions ts --loader node_modules/ts-node/esm ../tests.mts",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -50,9 +53,14 @@
     ]
   },
   "devDependencies": {
+    "@types/chai": "^4.3.5",
+    "@types/sinon": "^10.0.14",
     "@types/spotify-web-playback-sdk": "^0.1.15",
     "@types/styled-components": "^5.1.26",
+    "chai": "^4.3.7",
     "dotenv-webpack": "^8.0.1",
-    "react-router-dom": "^6.10.0"
+    "firebase-admin": "^11.8.0",
+    "react-router-dom": "^6.10.0",
+    "sinon": "^15.0.4"
   }
 }

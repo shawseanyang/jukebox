@@ -1,7 +1,9 @@
 import firebase from "firebase/compat/app";
+import "firebase/compat/firestore";
 import { UrlWithStringQuery } from "url";
 import { Song } from "./types/Music";
-import "firebase/compat/firestore";
+import {Mutex} from 'async-mutex';
+import { release } from "os";
 
 /*
 
@@ -58,6 +60,7 @@ var myUserID : string = "";
 var sessionId : string = "";
 var consensusMajority : number = 0; // Number of acceptors is floor((consensusMajority - 1)/2) + 1
 var currMembers: Set<string> = new Set();
+const membership_mutex : Mutex = new Mutex();
 
 // For sending messages and keeping track of connections
 var userToConnection: {[id: string]: RTCPeerConnection} = {};
@@ -73,6 +76,7 @@ const NO_ROLE = "none";
 interface message {
   message_type: number;
   round_type: number;
+  messageID?: string;
   ranking_val?: number;
   timestamp?: number;
   song?: Song | null;
@@ -86,19 +90,31 @@ interface message {
 
 // Consensus globals
 var lastPrepareRankingVal = 0;
+const last_prepare_ranking_val_mutex = new Mutex();
 var lastAcceptedRankingVal = 0;
+const last_accepted_ranking_val_mutex = new Mutex();
 var myRole = NO_ROLE;
+const roleMutex = new Mutex;
 
 // For proposer
 var ranking_val = 1;
+const ranking_val_mutex = new Mutex();
 var roundInProgress = false;
-
+const round_in_progress_mutex = new Mutex();
 var messageQueue: message[] = [];
+const message_queue_mutex = new Mutex();
 var promises = 0;
+const promises_mutex = new Mutex();
 var acceptances = 0;
+const acceptances_mutex = new Mutex();
+
+// For acceptor and learner
+var messageIDInt = 0
+var operationsInProgressQueue: message[] = [];
 
 // For learner
 var lastLearned = 0;
+const last_learned_mutex = new Mutex();
 
 // Message types
 const TOGGLE = 1;
@@ -146,6 +162,7 @@ async function addUser() {
   });
 
   console.log("I am user", myUserID);
+  return myUserID
 }
 
 // Creates a session by adding an entry to the sessions table. This ID will be used
@@ -167,8 +184,10 @@ async function createOrJoin(roomAlias: string) {
       });
       if (sessionId != '') {
         joinSession();
+        return "joined";
       } else {
         createSession(roomAlias)
+        return "created";
       }
   
       
@@ -192,14 +211,19 @@ async function createSession(roomAlias: string) {
     },
   };
 
-  currMembers.add(myUserID);
-  consensusMajority = 0;
+  membership_mutex.acquire().then((release)=>{
+    currMembers.add(myUserID);
+    consensusMajority = 0;
+    release();
+  })
 
   const sessionRef = await db.collection("sessions").add(sessionEntry);
 
   // Subscribe to changes to the membership of the session
   sessionRef.onSnapshot(handleMembershipChange);
   sessionId = sessionRef.id;
+
+  return sessionId
 }
 
 // Join session that corresponds with the room alias. This in turn gives
@@ -235,12 +259,17 @@ async function joinSession() {
     });
   
   // Set globals
-  currMembers = new Set(userList);
-  currMembers.add(myUserID);
-  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+  membership_mutex.acquire().then((release)=>{
+    currMembers = new Set(userList);
+    currMembers.add(myUserID);
+    consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+    release();
+  })
 
   // Subscribe to changes in the membership of the session
   sessionRef.onSnapshot(handleMembershipChange);
+
+  return currMembers;
 }
 
 // Sends offers to connect from the new joiner of a session to people in the session
@@ -473,8 +502,12 @@ async function handleNewOffer(change: firebase.firestore.DocumentChange) {
     console.log(`Adding answer ${answerObj} to ${otherUserID}`);
     otherUserRef.collection("answers").doc(myUserID).set(answerObj);
   }
-  currMembers.add(otherUserID);
-  consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+
+  membership_mutex.acquire().then((release)=>{
+    currMembers.add(otherUserID);
+    consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+    release();
+  })
 }
 
 async function handleNewAnswer(change: firebase.firestore.DocumentChange) {
@@ -495,8 +528,7 @@ async function handleNewAnswer(change: firebase.firestore.DocumentChange) {
     offererCandidateString,
     answererCandidateString
   );
-  // currMembers.add(otherUserID);
-  // consensusMajority = Math.floor((currMembers.size - 1) / 2) + 1;
+
 }
 
 async function addICECollection(
@@ -582,28 +614,64 @@ async function handleMembershipChange(snapshot: firebase.firestore.DocumentSnaps
       case DISTINGUISHED_PROPOSER:
         switch (myRole) {
           case DISTINGUISHED_PROPOSER:
-            if (droppedRole == ACCEPTOR && roundInProgress) {
-              if (promises >= consensusMajority) {
-                // Person dropped while an accept round was in progress
-                messageQueue[0].round_type = ACCEPT;
-                messageQueue[0].must_accept = true;
-                sendMessage(messageQueue[0], ACCEPTOR);
-              } else if (promises < consensusMajority) {
-                // Person dropped while a prepare round was in progress
-                //  Restart last round with a higher ranking_val
-                ranking_val++;
-                startRound();
+            const currConsensusMajority = consensusMajority;
+            round_in_progress_mutex.acquire().then((releaseRoundInProgress)=>{
+              if (droppedRole == ACCEPTOR && roundInProgress) {
+                promises_mutex.acquire().then((releasePromises)=>{
+                  if (promises >= currConsensusMajority) {
+                    // Person dropped while an accept round was in progress
+                    message_queue_mutex.acquire().then((releaseMessageQueue)=>{
+                      messageQueue[0].round_type = ACCEPT;
+                      messageQueue[0].must_accept = true;
+                      sendMessage(messageQueue[0], ACCEPTOR);
+                      releaseMessageQueue();
+                    })
+                  } else if (promises < currConsensusMajority) {
+                    // Person dropped while a prepare round was in progress
+                    //  Restart last round with a higher ranking_val
+                    ranking_val_mutex.acquire().then((releaseRankingVal)=>{
+                      ranking_val++;
+                      releaseRankingVal();
+                    })
+                    startRound();
+                  }
+                  releasePromises();
+                })
               }
-            }
+              releaseRoundInProgress();
+            })
 
             break;
           case ACCEPTOR:
-            resetProposerGlobals(lastPrepareRankingVal);
+            last_prepare_ranking_val_mutex.acquire().then(function(release){
+              resetProposerGlobals(lastPrepareRankingVal);
+              release();
+            })
+
+            messageQueue = [...operationsInProgressQueue];
+            operationsInProgressQueue = [];
+
             break;
           default:
             console.log("Had no valid former role:", myRole);
         }
 
+        break;
+      case ACCEPTOR:
+        // Send operations that were in progress when the last proposer failed to the new proposer
+        if (droppedRole === DISTINGUISHED_PROPOSER) {
+          for (let operation of operationsInProgressQueue) {
+            sendMessage(operation, DISTINGUISHED_PROPOSER);
+          }
+        }
+        break;
+      case LEARNER:
+        // Send operations that were in progress when the last proposer failed to the new proposer
+        if (droppedRole === DISTINGUISHED_PROPOSER) {
+          for (let operation of operationsInProgressQueue) {
+            sendMessage(operation, DISTINGUISHED_PROPOSER);
+          }
+        }
         break;
       default:
         console.log(
@@ -616,17 +684,49 @@ async function handleMembershipChange(snapshot: firebase.firestore.DocumentSnaps
   } else if (memberList.length > currMembers.size) {
   }
 
-  myRole = myNewRole;
-  consensusMajority = Math.floor((memberList.size - 1) / 2) + 1;
+  var oldRole;
+  roleMutex.acquire().then((release)=>{
+    oldRole = myRole;
+    myRole = myNewRole;
+    release();
+  })
+
+  membership_mutex.acquire().then((release) => {
+    consensusMajority = Math.floor((memberList.size - 1) / 2) + 1;
+    release();
+  })
+
+  return { newRole: myNewRole, oldRole: oldRole};
+
 }
 
 // Resets globals relevant to being a proposer
 function resetProposerGlobals(lastRankingVal : number) {
-  ranking_val = lastRankingVal + 1;
-  roundInProgress = false;
-  messageQueue = [];
-  promises = 0;
-  acceptances = 0;
+  ranking_val_mutex.acquire().then((release)=>{
+    ranking_val = lastRankingVal + 1;
+    release();
+  })
+  
+  round_in_progress_mutex.acquire().then((release)=>{
+    roundInProgress = false;
+    release();
+  })
+  
+  message_queue_mutex.acquire().then((release)=>{
+    messageQueue = [];
+    release();
+  })
+  
+  promises_mutex.acquire().then((release)=>{
+    promises = 0;
+    release();
+  })
+  
+  acceptances_mutex.acquire().then((release)=>{
+    acceptances = 0;
+    release();
+  })
+  
 }
 
 // Sends a message to the specified recipient class (DISTINGUISHED_PROPOSER|ACCEPTOR|LEARNER)
@@ -671,57 +771,84 @@ async function handleNewMessage(event: MessageEvent) {
     case DISTINGUISHED_PROPOSER:
       switch (message.round_type) {
         case REQUEST:
-          // Add requests for operations to the queue
-          messageQueue.push(message);
+         message_queue_mutex.acquire().then((release)=>{
+            // Add requests for operations to the queue
+            messageQueue.push(message);
 
-          // Starts consensus round if there isn't already anything in the queue
-          if (messageQueue.length === 1) {
-            startRound();
-          }
+            // Starts consensus round if there isn't already anything in the queue
+            if (messageQueue.length === 1) {
+              startRound();
+            }
+
+            release();
+          })
           break;
 
         case PROMISE:
-          if (message.ranking_val === ranking_val) {
-            promises++;
-            if (promises === consensusMajority) {
-              message.round_type = ACCEPT;
-              sendMessage(message, ACCEPTOR);
-
-              updateDataStructures(message);
-              promises = 0;
+          ranking_val_mutex.acquire().then((releaseRankingVal)=>{
+            if (message.ranking_val === ranking_val) {
+              promises_mutex.acquire().then((releasePromises)=>{
+                promises++;
+                const currConsensusMajority = consensusMajority;
+                if (promises === currConsensusMajority) {
+                  message.round_type = ACCEPT;
+                  sendMessage(message, ACCEPTOR);
+    
+                  updateDataStructures(message);
+                  promises = 0;
+                }
+                releasePromises();
+              })
             }
-          }
+            releaseRankingVal();
+          })
           break;
 
         case CANT_PROMISE:
           // Update ranking val and start round again with a higher ranking val
-          ranking_val = message.ranking_val + 1;
+          ranking_val_mutex.acquire().then((release) => {
+            ranking_val = message.ranking_val + 1;
+            message.ranking_val = ranking_val;
+            release();
+          })
 
-          message.ranking_val = ranking_val;
           message.message_type = PREPARE;
           sendMessage(message, ACCEPTOR);
           break;
 
         case ACCEPTED:
-          if (message.ranking_val === ranking_val) {
-            acceptances++;
-            if (acceptances === consensusMajority) {
-              acceptances = 0;
+          ranking_val_mutex.acquire().then((releaseRankingVal) => {
+            if (message.ranking_val === ranking_val) {
+              acceptances_mutex.acquire().then((releaseAcceptances) => {
+                acceptances++;
+                const currConsensusMajority = consensusMajority;
+                if (acceptances === currConsensusMajority) {
+                  acceptances = 0;
 
-              // Remove accepted message from queue
-              messageQueue.shift();
+                  // Remove accepted message from queue
+                  message_queue_mutex.acquire().then((releaseMessageQueue)=>{
+                    messageQueue.shift();
 
-              // Increase ranking val to prepare for the next round
-              ranking_val++;
+                    // Increase ranking val to prepare for the next round
+                    ranking_val++;
 
-              roundInProgress = false;
-
-              // Start consensus round with next message, if it exists
-              if (messageQueue.length > 0) {
-                startRound();
-              }
+                    round_in_progress_mutex.acquire().then((releaseRoundInProgress) => {
+                      roundInProgress = false;
+                      releaseRoundInProgress();
+                    })
+                    // Start consensus round with next message, if it exists
+                    if (messageQueue.length > 0) {
+                      startRound();
+                    }
+                    releaseMessageQueue();
+                  })
+                  
+                }
+                releaseAcceptances();
+              })
             }
-          }
+            releaseRankingVal();
+          })
           break;
 
         default:
@@ -735,50 +862,75 @@ async function handleNewMessage(event: MessageEvent) {
     case ACCEPTOR:
       switch (message.round_type) {
         case PREPARE:
-          if (lastPrepareRankingVal > message.ranking_val) {
-            message.round_type = CANT_PROMISE;
-            message.ranking_val = lastPrepareRankingVal;
-            sendMessage(message, DISTINGUISHED_PROPOSER);
-          } else if (lastPrepareRankingVal < message.ranking_val) {
-            // This number is higher than the last last number I promised to vote on, so I'll promise to vote on this
-            lastPrepareRankingVal = message.ranking_val;
-            message.round_type = PROMISE;
-            sendMessage(message, DISTINGUISHED_PROPOSER);
-          }
+          last_prepare_ranking_val_mutex.acquire().then(function(release) {
+            if (lastPrepareRankingVal > message.ranking_val) {
+              message.round_type = CANT_PROMISE;
+              message.ranking_val = lastPrepareRankingVal;
+              sendMessage(message, DISTINGUISHED_PROPOSER);
+            } else if (lastPrepareRankingVal < message.ranking_val) {
+              // This number is higher than the last last number I promised to vote on, so I'll promise to vote on this
+              lastPrepareRankingVal = message.ranking_val;
+              message.round_type = PROMISE;
+              sendMessage(message, DISTINGUISHED_PROPOSER);
+            }
+            
+            release();
+          })
           break;
         case ACCEPT:
           // Check if this is the round I agreed to vote on and that I haven't voted on it already
-          if (
-            lastPrepareRankingVal === message.ranking_val &&
-            message.ranking_val != lastAcceptedRankingVal
-          ) {
-            message.round_type = ACCEPTED;
 
-            sendMessage(message, DISTINGUISHED_PROPOSER);
-            updateDataStructures(message);
-            lastAcceptedRankingVal = message.ranking_val;
+          last_prepare_ranking_val_mutex.acquire().then((releasePrepareMutex) => {
+            last_accepted_ranking_val_mutex.acquire().then((releaseAcceptMutex) => {
+              if (
+                lastPrepareRankingVal === message.ranking_val &&
+                message.ranking_val != lastAcceptedRankingVal
+              ) {
+                message.round_type = ACCEPTED;
+    
+                sendMessage(message, DISTINGUISHED_PROPOSER);
+                lastAcceptedRankingVal = message.ranking_val;
+    
+                // If message type was valid, update data strucutres and notify learners
+                if (
+                  message.message_type === TOGGLE ||
+                  message.message_type === PLAY ||
+                  message.message_type === ADD ||
+                  message.message_type === REMOVE ||
+                  message.message_type === SCRUB ||
+                  message.message_type === SKIP
+                ) {
+                  updateDataStructures(message);
+                  message.round_type = LEARN;
+                  sendMessage(message, LEARNER);
 
-            // If message type was valid, notify learners
-            if (
-              message.message_type === TOGGLE ||
-              message.message_type === PLAY ||
-              message.message_type === ADD ||
-              message.message_type === REMOVE ||
-              message.message_type === SCRUB ||
-              message.message_type === SKIP
-            ) {
-              message.round_type = LEARN;
-              sendMessage(message, LEARNER);
-            }
-          } else if (message.must_accept) {
-            message.round_type = ACCEPTED;
+                  // Remove message from operations in progress queue
+                  for (let i = operationsInProgressQueue.length-1; i>-1; i--) {
+                    let operation = operationsInProgressQueue[i];
+                    if (message.messageID === operation.messageID) {
+                      operationsInProgressQueue.splice(i,1);
+                    }
+                  }
+                }
+              } else if (message.must_accept) {
+                message.round_type = ACCEPTED;
+    
+                sendMessage(message, DISTINGUISHED_PROPOSER);
+                updateDataStructures(message);
 
-            sendMessage(message, DISTINGUISHED_PROPOSER);
-            updateDataStructures(message);
 
-            lastPrepareRankingVal = message.ranking_val;
-            lastAcceptedRankingVal = message.ranking_val;
-          }
+                lastPrepareRankingVal = message.ranking_val;
+                lastAcceptedRankingVal = message.ranking_val;
+    
+              }
+
+              releaseAcceptMutex();
+
+            })
+            
+            releasePrepareMutex();
+
+          })
           break;
         case JOINING:
           console.log("Triggering joiner match state event");
@@ -796,10 +948,22 @@ async function handleNewMessage(event: MessageEvent) {
       switch (message.round_type) {
         case LEARN:
           // Learner updates data structures if they haven't already
-          if (message.ranking_val !== lastLearned) {
-            updateDataStructures(message);
-            lastLearned = message.ranking_val;
+          last_learned_mutex.acquire().then((release) => {
+            if (message.ranking_val !== lastLearned) {
+              updateDataStructures(message);
+              lastLearned = message.ranking_val;
+            }
+
+            release();
+          })
+
+          for (let i = operationsInProgressQueue.length-1; i>-1; i--) {
+            let operation = operationsInProgressQueue[i];
+            if (message.messageID === operation.messageID) {
+              operationsInProgressQueue.splice(i,1);
+            }
           }
+
           break;
         case JOINING:
           console.log("Triggering joiner match state event");
@@ -838,23 +1002,33 @@ async function initiateMessage(message: message) {
       } else {
 
         // Adds message to queue
-        messageQueue.push(message);
-        
-        // Starts round if that message is the only message in the queue
-        if (messageQueue.length === 1) {
-          startRound();
-        }
+        message_queue_mutex.acquire().then((release)=>{
+          messageQueue.push(message);
+
+          // Starts round if that message is the only message in the queue
+          if (messageQueue.length === 1) {
+            startRound();
+          }
+          release();
+        })
+    
       } 
       
       break;
     case ACCEPTOR:
       // Tells the proposer to attempt to achieve consensus on an operation
       message.round_type = REQUEST;
+      message.messageID = myUserID + messageIDInt.toString();
+      operationsInProgressQueue.push(message);
+      messageIDInt++;
       sendMessage(message, DISTINGUISHED_PROPOSER);
       break;
     case LEARNER:
       // Tells the proposer to attempt to achieve consensus on an operation
       message.round_type = REQUEST;
+      message.messageID = myUserID + messageIDInt.toString();
+      operationsInProgressQueue.push(message);
+      messageIDInt++;
       sendMessage(message, DISTINGUISHED_PROPOSER);
       break;
     default:
@@ -864,9 +1038,12 @@ async function initiateMessage(message: message) {
 }
 
 // For proposer to handle consensus
-async function startRound() {
+function startRound() {
   console.log("Consensus round started")
-  roundInProgress = true;
+  round_in_progress_mutex.acquire().then((release) => {
+    roundInProgress = true;
+    release();
+  })
   messageQueue[0].ranking_val = ranking_val;
   messageQueue[0].round_type = PREPARE;
   sendMessage(messageQueue[0], ACCEPTOR);
@@ -878,25 +1055,36 @@ function updateDataStructures(message: message) {
 
   // Custom event for broadcasting updates
   const event = new CustomEvent("updateDataStructures", {detail: message});
-
   window.dispatchEvent(event);
 
 }
 
 // Tells the React client to send its state to the consensus/group membership code when a new person joins
-async function triggerSendState(userID : string) {
+function triggerSendState(userID : string) {
   console.log(`Starting to send state to new member ${userID}`);
 
   // Custom event for broadcasting updates
   const event = new CustomEvent("sendState", {detail: userID});
-
   window.dispatchEvent(event);
 }
 
 // Tells the React client to update its state to match the state in the message
-async function triggerMatchState(message : message) {
+function triggerMatchState(message : message) {
   const event = new CustomEvent("matchState", {detail: message});
   window.dispatchEvent(event);
 }
 
-export { createOrJoin, initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP, JOINING};
+function setMyUserID(newId: string) {
+  myUserID = newId;
+}
+
+function setCurrMembers(newCurrMembers: string[]) {
+  currMembers = new Set(newCurrMembers);
+}
+
+export { createOrJoin, initiateMessage, TOGGLE, PLAY, ADD, SCRUB, REMOVE, SKIP, JOINING, handleNewOffer,
+  handleNewAnswer, handleMembershipChange,
+  addICECollection,
+  sendMessage,
+  sendPeerConnectionOffer,
+  createSession, joinSession, setMyUserID, setCurrMembers, myRole, triggerMatchState, triggerSendState, updateDataStructures, addUser};

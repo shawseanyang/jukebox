@@ -1,7 +1,7 @@
 import { Button, Row, Divider } from 'antd';
 import { ReactComponent as Jukebox } from '../assets/jukebox.svg';
 import { spotify_client_id, spotify_redirect_uri } from '../index';
-import { generateRandomString } from '../utils/Spotify';
+import { generateRandomString } from '../util/spotifyUtil';
 
 const Landing = () => {
 

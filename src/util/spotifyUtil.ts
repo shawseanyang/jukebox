@@ -9,6 +9,16 @@ const SPOTIFY_WEB_API_HEADERS = (token: string) => ({
     },
 });
 
+export var generateRandomString = function (length: number) {
+  var text = '';
+  var possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+  for (var i = 0; i < length; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+};
+
 module SpotifyUtil {
   export function searchForSongs(query: string, token: string, callback: (songs: Song[]) => void) {
     fetch(`https://api.spotify.com/v1/search?q=${query}&type=track`, SPOTIFY_WEB_API_HEADERS(token))
